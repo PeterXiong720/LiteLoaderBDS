@@ -1,4 +1,16 @@
-- Fixed Player is dropping items while sleeping(causing server lag)
-- Added Changable Event Api
-- Remove Logger's lock 
-- Fix bool type CommandParameterData
+## [LiteLoader Release Note] 
+LiteLoaderBDS-2.1.2 update has been released, automatic update has been pushed 
+This is an important bug fix update! 
+## [New features]
+ - Added some color-related APIs
+ - Script engine exported registerPlugin API
+ - Exported the new allowlist API
+ - Finished some i18n work
+## [Bug Fix]
+ - Fix a serious remote call deadlock problem in the scripting engine.
+Fix the problem of script engine ll.require working abnormally. 
+ - Fix a possible error reported by getXuid
+ - Fix the problem that the PlayerDrop event triggers incorrectly
+ - Fix the issue that the player respawn event triggers abnormally
+ - The problem that may occur when the crossbow fires fireworks rockets is fixed.
+ - The problem with AddonInstaller is fixed.

@@ -5,47 +5,151 @@
 
 #define BEFORE_EXTRA
 // Include Headers or Declare Types Here
+#define ENABLE_COMMAND_UNREGISTER
+enum CommandPermissionLevel : char;
+enum class CommandFlagValue : char;
+enum SemanticConstraint : unsigned char;
+class CommandParameterData;
+#include "CommandFlag.hpp"
 #include <memory>
-#include "Command.hpp"
+//#include "typeid_t.hpp"
+//#include "Command.hpp"
 #include "CommandPosition.hpp"
+#include "CommandPositionFloat.hpp"
 #include "CommandMessage.hpp"
 #include "CommandSelector.hpp"
 #include "CommandOrigin.hpp"
 #include "CommandVersion.hpp"
-class CommandParameterData;
+#include "CommandRawText.hpp"
+#include "CommandItem.hpp"
+#include "CommandIntegerRange.hpp"
+#include "AvailableCommandsPacket.hpp"
+
+
+#pragma region typeid
 
 template <typename T>
-class typeid_t {
+class typeid_t
+{
 public:
+    inline static unsigned short count = 0;
     unsigned short value;
     typeid_t<T>(typeid_t<T> const& id)
-        : value(id.value) {
-    }
+        : value(id.value){};
     typeid_t<T>(unsigned short value)
-        : value(value) {
-    }
+        : value(value){};
+};
+template <>
+class typeid_t<CommandRegistry>
+{
+public:
+    MCAPI static unsigned short count;
+    unsigned short value;
+    typeid_t<CommandRegistry>(typeid_t<CommandRegistry> const& id)
+        : value(id.value){};
+    typeid_t<CommandRegistry>(unsigned short value)
+        : value(value){};
+};
+template <typename T, typename T2>
+typeid_t<T> type_id()
+{
+    static typeid_t<T> id = typeid_t<T>::count++;
+    return id;
+}
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, ActorDamageCause>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, AutomaticID<class Dimension, int>>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class Block const*>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, bool>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class CommandMessage>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, enum CommandOperator>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class CommandPosition>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class CommandPositionFloat>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class CommandPositionFloat>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class CommandSelector<class Actor>>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class CommandSelector<class Player>>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, enum EquipmentSlot>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, float>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, int>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, Json::Value>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, enum Mirror>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class MobEffect const*>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class RelativeFloat>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, std::string>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, std::unique_ptr<class Command>>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, class WildcardCommandSelector<Actor>>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, CommandItem>();
+template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, CommandIntegerRange>();
+//template MCAPI typeid_t<CommandRegistry> type_id<CommandRegistry, ActorDefinitionIdentifier const*>();
+template<>
+inline typeid_t<CommandRegistry> type_id<CommandRegistry, ActorDefinitionIdentifier const*>()
+{
+    static typeid_t<CommandRegistry> id = *(typeid_t<CommandRegistry>*)dlsym_real("?id@?1???$type_id@VCommandRegistry@@PEBUActorDefinitionIdentifier@@@@YA?AV?$typeid_t@VCommandRegistry@@@@XZ@4V1@A");
+    //static typeid_t<CommandRegistry> id = ([]() -> typeid_t<CommandRegistry> {
+    //    CommandParameterData data = SymCall("??$mandatory@VRideCommand@@PEBUActorDefinitionIdentifier@@@commands@@YA?AVCommandParameterData@@PEQRideCommand@@PEBUActorDefinitionIdentifier@@PEBDPEQ2@_N@Z",
+    //            CommandParameterData, void*, char const*, uintptr_t)(nullptr, "entityType", 0);
+    //    return data.tid;
+    //    })();
+    return id;
 };
 
+#pragma endregion
+#include "../LoggerAPI.h"
 #undef BEFORE_EXTRA
 
 class CommandRegistry {
 
 #define AFTER_EXTRA
 // Add Member There
+
 public:
-    struct ParseToken {};
-
-    using ParseFn = bool (CommandRegistry::*)(
-        void*, CommandRegistry::ParseToken const&, CommandOrigin const&, int, std::string&,
-        std::vector<std::string>&) const;
-
+    struct ParseTable;
     class Symbol {
     public:
         unsigned val;
+        MCAPI Symbol(unsigned __int64 = -1);
+        MCAPI Symbol(class Symbol const&);
+        MCAPI unsigned __int64 toIndex() const;
+        MCAPI int value() const;
+        inline bool operator==(Symbol const& right) const
+        {
+            return val == right.val;
+        }
     };
 
+    struct ParseToken
+    {
+        std::unique_ptr<CommandRegistry::ParseToken> child;
+        std::unique_ptr<CommandRegistry::ParseToken> next;
+        CommandRegistry::ParseToken* parent;
+        const char* text; //24
+        uint32_t length;  //32
+        Symbol type;      //36
+        MCAPI std::string toString() const;
+        //{
+        //    if (text)
+        //        return std::string(text, length);
+        //    auto v6 = child.get();
+        //    auto v8 = child.get();
+        //    while (v8->child)
+        //    {
+        //        v8 = v8->child.get();
+        //    }
+        //    while (v6->child || v6->next)
+        //    {
+        //        v6 = v6->next ? v6->next.get() : v6->child.get();
+        //    }
+        //    auto v10 = v6->text + v6->length;
+        //    auto v11 = v8->text;
+        //    return std::string(v11, v10 - v11);
+        //};
+    };
+    static_assert(sizeof(ParseToken) == 40);
+    using ParseFn = bool (CommandRegistry::*)(
+        void*, ParseToken const&, CommandOrigin const&, int, std::string&,
+        std::vector<std::string>&) const;
+
     struct Overload {
-        using FactoryFn = std::unique_ptr<Command>(*)(void);
+        using FactoryFn = std::unique_ptr<class Command>(*)();
 
         CommandVersion version;                    // 0
         FactoryFn factory;                         // 8
@@ -64,13 +168,13 @@ public:
     };
 
     struct Signature {
-        std::string name;                                  // 0
-        std::string desc;                                  // 32
-        std::vector<CommandRegistry::Overload> overloads;  // 64
-        CommandPermissionLevel perm;                       // 88
-        CommandRegistry::Symbol main_symbol;               // 92
-        CommandRegistry::Symbol alt_symbol;                // 96
-        CommandFlag flag;                                  // 100
+        std::string name;                // 0
+        std::string desc;                // 32
+        std::vector<Overload> overloads; // 64
+        CommandPermissionLevel perm;     // 88
+        Symbol main_symbol;              // 92
+        Symbol alt_symbol;               // 96
+        CommandFlag flag;                // 100
         int unk72;
         int unk76;
         int unk80;
@@ -79,7 +183,7 @@ public:
         inline Signature(std::string_view name,
             std::string_view desc,
             CommandPermissionLevel perm,
-            CommandRegistry::Symbol symbol,
+            Symbol symbol,
             CommandFlag flag)
             : name(name), desc(desc), perm(perm), main_symbol(symbol), flag(flag) {}
     };
@@ -102,10 +206,210 @@ public:
             return convert<Type, uint64_t>(value);
         }
     };
+#ifdef ENABLE_COMMAND_UNREGISTER
+    struct ParseRule
+    {
+        Symbol sym;
+        std::function<ParseToken*(ParseToken&, Symbol)> func;
+        std::vector<Symbol> syms;
+        CommandVersion version;
+    };
+    struct ParseTable
+    {
+        std::map<Symbol, std::vector<Symbol>> first;
+        std::map<Symbol, std::vector<Symbol>> follow;
+        std::map<std::pair<Symbol, Symbol>, int> predict;
+    };
+    struct OptionalParameterChain
+    {
+        int parameterCount;
+        int followingRuleIndex;
+        Symbol paramSymbol;
+    };
+    struct Enum
+    {
+        std::string name;                                                                           // 0
+        typeid_t<CommandRegistry> type;                                                             // 32
+        ParseFn parse;                                                                              // 40
+        std::vector<std::tuple<unsigned long, unsigned long, unsigned long, unsigned long>> values; //48
+    };
+    struct Factorization
+    {
+    };
+    struct RegistryState
+    {
+        int signatureCount;
+        int enumValueCount;
+        int postfixCount;
+        int enumCount;
+        int factorizationCount;
+        int optionalCount;
+        int ruleCount;
+        int softEnumCount;
+        int constraintCount;
+        std::vector<unsigned int> constrainedValueCount;
+        std::vector<unsigned int> softEnumValuesCount;
+    };
+    struct ConstrainedValue
+    {
+        Symbol mValue;
+        Symbol mEnum;
+        std::vector<unsigned char> mConstraints;
+    };
+    using CommandOverrideFunctor = std::function<void __cdecl(struct CommandFlag&, class std::basic_string<char, struct std::char_traits<char>, class std::allocator<char>> const&)>;
+    using ParamSymbols = std::array<Symbol, 21>;
 
-    
+    std::function<void(const Packet&)> mGetScoreForObjective;                               // 0
+    std::function<void(const Packet&)> mNetworkUpdateCallback;                              // 64
+    std::vector<ParseRule> mRules;                                                          // 128
+    std::map<unsigned int, ParseTable> mParseTableMap;                                      // 152
+    std::vector<OptionalParameterChain> mOptionals;                                         // 168
+    std::vector<std::string> mEnumValues;                                                   // 192
+    std::vector<Enum> mEnums;                                                               // 216
+    std::vector<Factorization> mFactorizations;                                             // 240
+    std::vector<std::string> mPostfixes;                                                    // 264
+    std::map<std::string, unsigned int> mEnumLookup;                                        // 288
+    std::map<std::string, unsigned long> mEnumValueLookup;                                  // 304
+    std::vector<Symbol> mCommandSymbols;                                                    // 320
+    std::map<std::string, Signature> mSignatures;                                           // 344
+    std::map<typeid_t<CommandRegistry>, int> mTypeLookup;                                   // 360
+    std::map<char, char> unk376;                                                            // 376
+    std::map<std::string, std::string> mAliases;                                            // 392
+    std::vector<SemanticConstraint> mSemanticConstraints;                                   // 408
+    std::map<SemanticConstraint, unsigned char> mSemanticConstraintLookup;                  // 432
+    std::vector<ConstrainedValue> mConstrainedValues;                                       // 448
+    std::map<std::pair<unsigned long, unsigned int>, unsigned int> mConstrainedValueLookup; // 472
+    std::vector<SoftEnum> mSoftEnums;                                                       // 488
+    std::map<std::string, unsigned int> mSoftEnumLookup;                                    // 512
+    std::vector<RegistryState> mStateStack;                                                 // 528
+    ParamSymbols mArgs;                                                                     // 552
+    CommandOverrideFunctor mCommandOverrideFunctor;                                         // 640
+    //704
+
+    inline static Logger logger = Logger("RemoveCommand");
+
+    inline bool removeSymbol(Symbol symbol)
+    {
+        auto iter = std::find(mCommandSymbols.begin(), mCommandSymbols.end(), symbol);
+        if (iter == mCommandSymbols.end())
+            return false;
+        logger.warn("Remove Symbol {}", symbol.toIndex());
+        mCommandSymbols.erase(iter);
+        return true;
+    }
+    inline size_t removeRules(Symbol symbol)
+    {
+        size_t count = 0;
+        for (auto iter = mRules.begin(); iter != mRules.end();) {
+            if (iter->sym == symbol)
+            {
+                count++;
+                logger.warn("Remove ParseRule {}", symbol.toIndex());
+                iter = mRules.erase(iter);
+            }
+            else
+            {
+                ++iter;
+            }
+        }
+        return count;
+    }
+    LIAPI std::string getCommandFullName(std::string const& name)
+    {
+        auto sig = findCommand(name);
+        if (sig)
+            return sig->name;
+        return "";
+    }
+    LIAPI bool unregisterCommand(std::string const& name)
+    {
+        auto command = getCommandFullName(name);
+        if (command.empty())
+            return false;
+        auto alias = getAliases(name);
+        //mRules//bad
+        //mParseTableMap//zero
+        //mEnumValues, mEnums, mEnumValueLookup, mCommandSymbols, mSignatures, mAliases
+        //mConstrainedValues, mConstrainedValueLookup, mTypeLookup
+        auto iter = std::find_if(mEnums.begin(), mEnums.end(), [](Enum const& e) { return e.name == "CommandName"; });
+        for (auto i = iter->values.begin(); i != iter->values.end(); ) {
+            auto& enumValue = mEnumValues.at(std::get<3>(*i));
+            if (enumValue == command||std::find(alias.begin(), alias.end(), enumValue)!=alias.end())
+            {
+                logger.warn("Remove Enum Value: {}", enumValue);
+                mEnumValueLookup.erase(enumValue);
+                i = iter->values.erase(i);
+                static size_t removeIndex = 0;
+                enumValue = fmt::format("removed_{}", removeIndex++);
+            }
+            else
+            {
+                ++i;
+            }
+        }
+        auto sig = mSignatures.find(command);
+        if (sig == mSignatures.end())
+            return false;
+        if (!removeSymbol(sig->second.main_symbol))
+            return false;
+        removeSymbol(sig->second.alt_symbol);
+        removeRules(sig->second.main_symbol);
+        removeRules(sig->second.alt_symbol);
+        logger.warn("Remove Signature {}", sig->second.name);
+        mSignatures.erase(sig);
+        logger.warn("Remove Aliases", sig->second.name);
+        mAliases.erase(command);
+        return true;
+    }
+    void test()
+    {
+        auto mParseTableMapCopy = mParseTableMap;
+        auto mEnumLookupCopy = mEnumLookup;
+        auto mEnumValueLookupCopy = mEnumValueLookup;
+        auto mSignaturesCopy = mSignatures;
+        auto mTypeLookupCopy = mTypeLookup;
+        auto unk376Copy = unk376;
+        auto mAliasesCopy = mAliases;
+        auto mSemanticConstraintLookupCopy = mSemanticConstraintLookup;
+        auto mConstrainedValueLookupCopy = mConstrainedValueLookup;
+        auto mSoftEnumLookupCopy = mSoftEnumLookup;
+
+        constexpr auto size = sizeof(CommandRegistry);
+
+        static_assert(sizeof(Enum) == 72);
+        static_assert(sizeof(ParseTable) == 48);
+        static_assert(sizeof(ParseRule) == 104);
+        static_assert(sizeof(CommandRegistry) == 0x2c0);
+        static_assert(offsetof(CommandRegistry, mGetScoreForObjective) == 0);
+        static_assert(offsetof(CommandRegistry, mNetworkUpdateCallback) == 64);
+        static_assert(offsetof(CommandRegistry, mRules) == 128);
+        static_assert(offsetof(CommandRegistry, mParseTableMap) == 152);
+        static_assert(offsetof(CommandRegistry, mOptionals) == 168);
+        static_assert(offsetof(CommandRegistry, mEnumValues) == 192);
+        static_assert(offsetof(CommandRegistry, mEnums) == 216);
+        static_assert(offsetof(CommandRegistry, mFactorizations) == 240);
+        static_assert(offsetof(CommandRegistry, mPostfixes) == 264);
+        static_assert(offsetof(CommandRegistry, mEnumLookup) == 288);
+        static_assert(offsetof(CommandRegistry, mEnumValueLookup) == 304);
+        static_assert(offsetof(CommandRegistry, mCommandSymbols) == 320);
+        static_assert(offsetof(CommandRegistry, mSignatures) == 344);
+        static_assert(offsetof(CommandRegistry, mTypeLookup) == 360);
+        static_assert(offsetof(CommandRegistry, unk376) == 376);
+        static_assert(offsetof(CommandRegistry, mAliases) == 392);
+        static_assert(offsetof(CommandRegistry, mSemanticConstraints) == 408);
+        static_assert(offsetof(CommandRegistry, mSemanticConstraintLookup) == 432);
+        static_assert(offsetof(CommandRegistry, mConstrainedValues) == 448);
+        static_assert(offsetof(CommandRegistry, mConstrainedValueLookup) == 472);
+        static_assert(offsetof(CommandRegistry, mSoftEnums) == 488);
+        static_assert(offsetof(CommandRegistry, mSoftEnumLookup) == 512);
+        static_assert(offsetof(CommandRegistry, mStateStack) == 528);
+        static_assert(offsetof(CommandRegistry, mArgs) == 552);
+        static_assert(offsetof(CommandRegistry, mCommandOverrideFunctor) == 640);
+    }
+#endif ENABLE_COMMAND_UNREGISTER
+
     template <typename T>
-    inline static std::unique_ptr<Command> allocateCommand() {
+    inline static std::unique_ptr<class Command> allocateCommand() {
         return std::make_unique<T>();
     }
     inline void registerOverload(
@@ -124,7 +428,6 @@ public:
         fakeParse(void*, ParseToken const&, CommandOrigin const&, int, std::string&, std::vector<std::string>&) const {
         return false;
     }
-    struct ParseTable {};
     inline static std::unordered_map<string, void*> parse_ptr = {
         {typeid(CommandMessage).name(),
          dlsym_real(
@@ -171,9 +474,57 @@ public:
              "HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@"
              "DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@"
              "std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(CommandPositionFloat).name(),
+         dlsym_real(
+             "??$parse@VCommandPositionFloat@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@"
+             "HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@"
+             "DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@"
+             "V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(Json::Value).name(),
+         dlsym_real(
+             "??$parse@VValue@Json@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@"
+             "HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@"
+             "DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@"
+             "V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(std::unique_ptr<class Command>).name(),
+         dlsym_real(
+             "??$parse@V?$unique_ptr@VCommand@@U?$default_delete@VCommand@@@std@@@std@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(RelativeFloat).name(),
+         dlsym_real(
+             "??$parse@VRelativeFloat@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(CommandRawText).name(),
+         dlsym_real(
+             "??$parse@VCommandRawText@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(Block const*).name(),
+         dlsym_real(
+             "??$parse@PEBVBlock@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(MobEffect const*).name(),
+         dlsym_real(
+             "??$parse@PEBVMobEffect@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(CommandItem).name(),
+         dlsym_real(
+             "??$parse@VCommandItem@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(WildcardCommandSelector<Actor>).name(),
+         dlsym_real(
+             "??$parse@V?$WildcardCommandSelector@VActor@@@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
+        {typeid(ActorDefinitionIdentifier const*).name(),
+         dlsym_real(
+             "??$parse@PEBUActorDefinitionIdentifier@@@CommandRegistry@@AEBA_NPEAXAEBUParseToken@0@AEBVCommandOrigin@@HAEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@@Z")},
     };
+
+private:
+    template <typename T>
+    bool parse(void*, ParseToken const&, CommandOrigin const&, int, std::string&, std::vector<std::string>&) const {
+            
+    };
+
+public:
     template <typename T>
     inline static ParseFn getParseFn(){
+        if constexpr (!std::is_same_v<enum CommandOperator,T> && std::is_enum_v<T>)
+            return &fakeParse<T>;
+        //else
+        //    return &parse<T>;
         bool (CommandRegistry::*ptr)(void*, CommandRegistry::ParseToken const&,
                                      CommandOrigin const&, int, std::string&,
                                      std::vector<std::string>&) const;
@@ -190,16 +541,42 @@ public:
                       CommandOrigin const&,
                       int,
                       std::string&,
-                      std::vector<std::string>&) const {
+                      std::vector<std::string>&) const
+    {
         auto data = getEnumData(token);
         *(int*)target = (int)data;
+        return true;
+    }
+    bool parseEnumString(void* target,
+                         CommandRegistry::ParseToken const& token,
+                         CommandOrigin const&,
+                         int,
+                         std::string&,
+                         std::vector<std::string>&) const
+    {
+        auto data = token.toString();
+        *(std::string*)target = data;
+        return true;
+    }
+    bool parseEnumStringAndInt(void* target,
+                         CommandRegistry::ParseToken const& token,
+                         CommandOrigin const&,
+                         int,
+                         std::string&,
+                         std::vector<std::string>&) const
+    {
+        auto str = token.toString();
+        auto data = getEnumData(token);
+        *(std::pair<std::string, int>*)target = {str, (int)data};
         return true;
     }
 
     template <typename Type, typename IDConverter = CommandRegistry::DefaultIdConverter<Type>>
     bool parseEnum(
         void* target, CommandRegistry::ParseToken const& token, CommandOrigin const&, int, std::string&,
-        std::vector<std::string>&) const {
+        std::vector<std::string>&) const
+    {
+        //fmt::print(token.toString() + '\n');
         auto data = getEnumData(token);
         *(Type*)target = IDConverter{}(data);
         return true;
@@ -225,18 +602,18 @@ public:
         return _addEnumValuesInternal(name, converted, tid, &CommandRegistry::parseEnumInt).val;
     }
 
-    inline static typeid_t<CommandRegistry> getNextTypeId() {
-        auto& id = *((unsigned short*)SYM("?count@?$typeid_t@VCommandRegistry@@@@2GA"));
-        return {id++};
-    }
+    //inline static typeid_t<CommandRegistry> getNextTypeId() {
+    //    return typeid_t<CommandRegistry>::count++;
+    //}
 
     template <typename T>
     CommandRegistry* addEnum(char const* name, std::vector<std::pair<std::string, T>> const& values) {
-        this->addEnumValues<T>(name, CommandRegistry::getNextTypeId(), values);
+        this->addEnumValues<T>(name, type_id<CommandRegistry, T>(), values);
         return this;
     }
 
-    
+    friend class DynamicCommand;
+    friend class DynamicCommandInstance;
 
 
 #undef AFTER_EXTRA
@@ -253,6 +630,7 @@ public:
     MCAPI int addEnumValues(std::string const&, std::vector<std::string> const&);
     MCAPI int addSoftEnum(std::string const&, std::vector<std::string>);
     MCAPI void addSoftEnumValues(std::string const&, std::vector<std::string>);
+    MCAPI bool buildSelector(struct ActorSelectorArgs const&, class CommandSelectorBase*, std::string&) const;
     MCAPI std::vector<std::string> getAliases(std::string const&) const;
     MCAPI std::vector<std::string> getAlphabeticalLookup(class CommandOrigin const&) const;
     MCAPI std::string getCommandName(std::string const&) const;
@@ -268,7 +646,6 @@ public:
     MCAPI void setCommandRegistrationOverride(class std::function<void (struct CommandFlag& , std::string const& )>);
     MCAPI void setNetworkUpdateCallback(class std::function<void (class Packet const& )>);
     MCAPI void setScoreCallback(class std::function<int (bool& , std::string const& , class Actor const& )>);
-    MCAPI void setSoftEnumValues(std::string const&, std::vector<std::string>);
     MCAPI ~CommandRegistry();
     MCAPI static char const* COMMAND_NAME_ENUM_NAME;
     MCAPI static char const* FUNCTION_NAME_SOFTENUM_NAME;
@@ -300,8 +677,8 @@ private:
     MCAPI std::string describe(struct CommandRegistry::Signature const&, std::string const&, struct CommandRegistry::Overload const&, unsigned int, unsigned int*, unsigned int*) const;
     MCAPI std::string describe(class CommandParameterData const&) const;
     MCAPI std::string describe(class CommandRegistry::Symbol) const;
-    MCAPI struct CommandRegistry::Signature* findCommand(std::string const&);
     MCAPI struct CommandRegistry::Signature const* findCommand(std::string const&) const;
+    MCAPI struct CommandRegistry::Signature* findCommand(std::string const&);
     MCAPI class CommandRegistry::Symbol findEnumValue(std::string const&) const;
     MCAPI class CommandRegistry::Symbol findIdentifierInfo(std::string const&) const;
     MCAPI class CommandRegistry::Symbol findPostfix(std::string const&) const;
@@ -313,6 +690,7 @@ private:
     MCAPI bool originCanRun(class CommandOrigin const&, struct CommandRegistry::Overload const&) const;
     MCAPI bool originCanRun(class CommandOrigin const&, struct CommandRegistry::Signature const&) const;
     MCAPI bool parseOperator(enum CommandOperator*, struct CommandRegistry::ParseToken const&, std::string&, std::vector<std::string>&) const;
+    MCAPI bool parseSelector(struct ActorSelectorArgs&, struct CommandRegistry::ParseToken const&, class CommandOrigin const&, int, std::string&, std::vector<std::string>&) const;
     MCAPI bool parseSelector(class CommandSelectorBase*, struct CommandRegistry::ParseToken const&, class CommandOrigin const&, int, std::string&, std::vector<std::string>&, bool) const;
     MCAPI void registerOverloadInternal(struct CommandRegistry::Signature&, struct CommandRegistry::Overload&);
     MCAPI void setupOverloadRules(struct CommandRegistry::Signature&, struct CommandRegistry::Overload&);

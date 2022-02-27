@@ -6,9 +6,11 @@
 #define BEFORE_EXTRA
 // Include Headers or Declare Types Here
 #include "ActorDefinitionIdentifier.hpp"
+#include "CommandPosition.hpp"
 #include <functional>
 class CommandOrigin;
 class Actor;
+class Player;
 
 #undef BEFORE_EXTRA
 
@@ -53,6 +55,7 @@ public:
     MCAPI bool isExplicitIdSelector() const;
     MCAPI void setIncludeDeadPlayers(bool);
     MCAPI void setType(enum CommandSelectionType);
+    MCAPI void setVersion(int);
     MCAPI ~CommandSelectorBase();
 
 protected:
@@ -60,8 +63,10 @@ protected:
     MCAPI class std::shared_ptr<std::vector<class Actor* > > newResults(class CommandOrigin const&) const;
 
 private:
-    MCAPI bool filter(class CommandOrigin const&, class Actor&, float) const;
+    MCAPI bool compareName(std::string const&) const;
+    MCAPI bool filter(class CommandOrigin const&, class Actor&) const;
     MCAPI bool isExpansionAllowed(class CommandOrigin const&) const;
+    MCAPI bool isInDimension(class CommandOrigin const&, class Actor&) const;
     MCAPI bool matchFamily(class Actor const&) const;
     MCAPI bool matchName(class Actor const&) const;
     MCAPI bool matchTag(class Actor const&) const;

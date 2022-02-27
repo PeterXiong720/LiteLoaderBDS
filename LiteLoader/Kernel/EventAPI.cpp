@@ -1,4 +1,4 @@
-﻿#include <Main/Config.h>
+#include <Main/Config.h>
 #include <EventAPI.h>
 #include <Global.h>
 #include <LoggerAPI.h>
@@ -23,6 +23,7 @@
 #include <MC/NetworkIdentifier.hpp>
 #include <MC/Objective.hpp>
 #include <MC/Player.hpp>
+#include <MC/PlayerActionPacket.hpp>
 #include <MC/RespawnPacket.hpp>
 #include <MC/Scoreboard.hpp>
 #include <MC/NpcActionsContainer.hpp>
@@ -34,93 +35,258 @@
 #include <MC/ScoreboardId.hpp>
 #include <MC/ServerNetworkHandler.hpp>
 #include <MC/VanillaBlocks.hpp>
+#include <ScheduleAPI.h>
 #include <MC/ServerPlayer.hpp>
 #include <RegCommandAPI.h>
 #include <Utils/StringHelper.h>
+#include <Utils/DbgHelper.h>
+#include <I18nAPI.h>
 #include <functional>
+#include <tuple>
 #include <iostream>
 #include <string>
 #include <typeinfo>
 #include <vector>
+#include <MC/ComplexInventoryTransaction.hpp>
+#include <MC/InventoryTransaction.hpp>
+#include <MC/InventoryAction.hpp>
+#include <MC/InventorySource.hpp>
+#include <MC/Util.hpp>
+
+static_assert(offsetof(InventoryAction, source) == 0x0);
+static_assert(offsetof(InventoryAction, slot) == 0x0c);
+static_assert(offsetof(InventoryAction, from) == 0x10);
+static_assert(offsetof(InventoryAction, to) == 0xa0);
+static_assert(offsetof(InventorySource, type) == 0x0);
+static_assert(offsetof(InventorySource, container) == 0x04);
+static_assert(offsetof(InventorySource, flags) == 0x08);
+static_assert(offsetof(ComplexInventoryTransaction, type) == 0x08);
+static_assert(offsetof(ComplexInventoryTransaction, data) == 0x10);
+static_assert(offsetof(InventoryTransaction, actions) == 0x0);
+static_assert(offsetof(InventoryTransaction, items) == 0x40);
+
 using namespace Event;
 using std::vector;
-
 extern Logger logger;
 
-class ChangeDimensionRequest;
-class DisconnectPacket;
+/////////////////////////////// Event Data ///////////////////////////////
 
-#define DeclareEventListeners(EVENT) template <> \
-EventTemplate<EVENT>::ListenersContainer EventTemplate<EVENT>::listeners; \
-EventTemplate<EVENT>::ListenersContainerNoConst EventTemplate<EVENT>::listenersNoConst;
+int globalListenerId = 0;
 
-DeclareEventListeners(PlayerPreJoinEvent)
-DeclareEventListeners(PlayerJoinEvent)
-DeclareEventListeners(PlayerLeftEvent)
-DeclareEventListeners(PlayerRespawnEvent)
-DeclareEventListeners(PlayerChatEvent)
-DeclareEventListeners(PlayerUseItemEvent)
-DeclareEventListeners(PlayerUseItemOnEvent)
-DeclareEventListeners(PlayerChangeDimEvent)
-DeclareEventListeners(PlayerJumpEvent)
-DeclareEventListeners(EntityTransformEvent)
-DeclareEventListeners(PlayerSneakEvent)
-DeclareEventListeners(PlayerAttackEvent)
-DeclareEventListeners(PlayerAttackBlockEvent)
-DeclareEventListeners(PlayerDieEvent)
-DeclareEventListeners(PlayerTakeItemEvent)
-DeclareEventListeners(PlayerDropItemEvent)
-DeclareEventListeners(PlayerEatEvent)
-DeclareEventListeners(PlayerConsumeTotemEvent)
-DeclareEventListeners(PlayerCmdEvent)
-DeclareEventListeners(PlayerDestroyBlockEvent)
-DeclareEventListeners(PlayerPlaceBlockEvent)
-DeclareEventListeners(PlayerEffectChangedEvent)
-DeclareEventListeners(PlayerStartDestroyBlockEvent)
-DeclareEventListeners(PlayerOpenContainerEvent)
-DeclareEventListeners(PlayerCloseContainerEvent)
-DeclareEventListeners(PlayerInventoryChangeEvent)
-DeclareEventListeners(PlayerMoveEvent)
-DeclareEventListeners(PlayerSprintEvent)
-DeclareEventListeners(PlayerSetArmorEvent)
-DeclareEventListeners(PlayerUseRespawnAnchorEvent)
-DeclareEventListeners(PlayerOpenContainerScreenEvent)
-DeclareEventListeners(PlayerUseFrameBlockEvent)
-DeclareEventListeners(PlayerExperienceAddEvent)
-DeclareEventListeners(MobHurtEvent)
-DeclareEventListeners(MobDieEvent)
-DeclareEventListeners(EntityExplodeEvent)
-DeclareEventListeners(ProjectileHitEntityEvent)
-DeclareEventListeners(WitherBossDestroyEvent)
-DeclareEventListeners(EntityRideEvent)
-DeclareEventListeners(EntityStepOnPressurePlateEvent)
-DeclareEventListeners(NpcCmdEvent)
-DeclareEventListeners(ProjectileSpawnEvent)
-DeclareEventListeners(ProjectileCreatedEvent)
-DeclareEventListeners(ItemUseOnActorEvent)
-DeclareEventListeners(BlockInteractedEvent)
-DeclareEventListeners(ArmorStandChangeEvent)
-DeclareEventListeners(BlockExplodeEvent)
-DeclareEventListeners(ContainerChangeEvent)
-DeclareEventListeners(PistonPushEvent)
-DeclareEventListeners(PistonTryPushEvent)
-DeclareEventListeners(RedStoneUpdateEvent)
-DeclareEventListeners(BlockExplodedEvent)
-DeclareEventListeners(LiquidSpreadEvent)
-DeclareEventListeners(ProjectileHitBlockEvent)
-DeclareEventListeners(HopperSearchItemEvent)
-DeclareEventListeners(HopperPushOutEvent)
-DeclareEventListeners(BlockChangedEvent)
-DeclareEventListeners(FarmLandDecayEvent)
-DeclareEventListeners(FireSpreadEvent)
-DeclareEventListeners(CmdBlockExecuteEvent)
-DeclareEventListeners(ConsoleCmdEvent)
-DeclareEventListeners(PlayerScoreChangedEvent)
-DeclareEventListeners(ConsoleOutputEvent)
-DeclareEventListeners(PostInitEvent)
-DeclareEventListeners(ServerStartedEvent)
-DeclareEventListeners(ServerStoppedEvent)
-DeclareEventListeners(RegCmdEvent)
+template<typename EVENT>
+struct ListenerData
+{
+    std::string pluginName;
+    int listenerId;
+    bool isRef;
+    std::function<bool(EVENT)> callback;
+    std::function<bool(EVENT&)> callbackRef;
+};
+
+template<typename EVENT>
+std::list<ListenerData<EVENT>> listeners;
+
+
+/////////////////////////////// Listener Manager /////////////////////////////// 
+
+template<typename EVENT>
+int EventManager<EVENT>::addEventListener(std::string name, std::function<bool(EVENT)> callback)
+{
+    int newId = ++globalListenerId;
+    listeners<EVENT>.push_back({ name, newId, false, callback, nullptr });
+    return newId;
+}
+
+template<typename EVENT>
+int EventManager<EVENT>::addEventListenerRef(std::string name, std::function<bool(EVENT&)> callback)
+{
+    int newId = ++globalListenerId;
+    listeners<EVENT>.push_back({ name, newId, true, nullptr, callback });
+    return newId;
+}
+
+template<typename EVENT>
+bool EventManager<EVENT>::removeEventListener(int id)
+{
+    for(auto &i = listeners<EVENT>.begin(); i!=listeners<EVENT>.end(); ++i)
+        if (i->listenerId == id)
+        { listeners<EVENT>.erase(i); return true; }
+    return false;
+}
+
+template<typename EVENT>
+bool EventManager<EVENT>::hasListener()
+{
+    return !listeners<EVENT>.empty();
+}
+
+
+/////////////////////////////// Event Calling /////////////////////////////// 
+
+inline void OutputError(std::string errorMsg, int errorCode, std::string errorWhat, std::string eventName, std::string pluginName)
+{
+    logger.error(errorMsg);
+    logger.error("Error: Code [{}] {}", errorCode, errorWhat);
+    logger.error("In Event ({})", eventName);
+    if (!pluginName.empty())
+        logger.error("In Plugin <{}>", pluginName);
+}
+
+template<typename EVENT>
+bool EventManager<EVENT>::call(EVENT& ev)
+{
+    bool passToBDS = true;
+    for (auto i = listeners<EVENT>.begin(); i != listeners<EVENT>.end(); ++i)
+    {
+        try {
+            bool res = i->isRef ? i->callbackRef(ev) : i->callback(ev);
+            if (!res)
+                passToBDS = false;
+        }
+        catch (const seh_exception& e)
+        {
+            OutputError("Uncaught SEH Exception Detected!", e.code(), TextEncoding::toUTF8(e.what()), typeid(EVENT).name(), i->pluginName);
+        }
+        catch (const std::exception& e)
+        {
+            OutputError("Uncaught C++ Exception Detected!", errno, TextEncoding::toUTF8(e.what()), typeid(EVENT).name(), i->pluginName);
+        }
+        catch (...)
+        {
+            OutputError("Uncaught Exception Detected!", -1, "", typeid(EVENT).name(), i->pluginName);
+        }
+    }
+
+
+    ///////////////////////////////////// For compatibility DO NOT UPDATE /////////////////////////////////////
+    auto iNoConst = ev.listenersNoConst.begin();
+    try { for (; iNoConst != ev.listenersNoConst.end(); ++iNoConst) if (!iNoConst->second(ev)) passToBDS = false;}
+    catch (const seh_exception& e)
+    { OutputError("Uncaught SEH Exception Detected!", e.code(), TextEncoding::toUTF8(e.what()), typeid(EVENT).name(), iNoConst->first); }
+    catch (const std::exception& e)
+    { OutputError("Uncaught Exception Detected! ", -1, TextEncoding::toUTF8(e.what()), typeid(EVENT).name(), iNoConst->first); }
+    catch (...)
+    { OutputError("Uncaught Exception Detected!", -1, "", typeid(EVENT).name(), iNoConst->first); }
+    ///////////////////////////////////// For compatibility DO NOT UPDATE /////////////////////////////////////
+    auto i = ev.listeners.begin();
+    try { for (; i != ev.listeners.end(); ++i) if (!i->second(ev)) passToBDS = false; }
+    catch (const seh_exception& e)
+    { OutputError("Uncaught SEH Exception Detected!", e.code(), TextEncoding::toUTF8(e.what()), typeid(EVENT).name(), i->first); }
+    catch (const std::exception& e)
+    { OutputError("Uncaught Exception Detected! ", -1, TextEncoding::toUTF8(e.what()), typeid(EVENT).name(), i->first); }
+    catch (...)
+    { OutputError("Uncaught Exception Detected!", -1, "", typeid(EVENT).name(), i->first); }
+    ///////////////////////////////////// For compatibility DO NOT UPDATE /////////////////////////////////////
+
+    return passToBDS;
+}
+
+template<typename EVENT>
+bool EventManager<EVENT>::callToPlugin(std::string pluginName, EVENT& ev)
+{
+    bool passToBDS = true;
+    for (auto i = listeners<EVENT>.begin(); i != listeners<EVENT>.end(); ++i)
+    {
+        if (i->pluginName != pluginName)
+            continue;
+        try {
+            bool res = i->isRef ? i->callbackRef(ev) : i->callback(ev);
+            if (!res) passToBDS = false;
+        }
+        catch (const seh_exception& e)
+        {
+            OutputError("Uncaught SEH Exception Detected!", e.code(), TextEncoding::toUTF8(e.what()), typeid(EVENT).name(), i->pluginName);
+        }
+        catch (const std::exception& e)
+        {
+            OutputError("Uncaught C++ Exception Detected!", errno, TextEncoding::toUTF8(e.what()), typeid(EVENT).name(), i->pluginName);
+        }
+        catch (...)
+        {
+            OutputError("Uncaught Exception Detected!", -1, "", typeid(EVENT).name(), i->pluginName);
+        }
+    }
+    return passToBDS;
+}
+
+
+/////////////////////////////// Event Declare /////////////////////////////// 
+
+#define DECLARE_EVENT_DATA(EVENT) \
+    template class EventManager<EVENT>; \
+    /*********************** For Compatibility ***********************/ \
+    std::list<std::pair<string, std::function<bool(const EVENT&)>>> EventTemplate<EVENT>::listeners; \
+    std::list<std::pair<string, std::function<bool(EVENT&)>>> EventTemplate<EVENT>::listenersNoConst;
+
+DECLARE_EVENT_DATA(PlayerPreJoinEvent);
+DECLARE_EVENT_DATA(PlayerJoinEvent);
+DECLARE_EVENT_DATA(PlayerLeftEvent);
+DECLARE_EVENT_DATA(PlayerRespawnEvent);
+DECLARE_EVENT_DATA(PlayerChatEvent);
+DECLARE_EVENT_DATA(PlayerUseItemEvent);
+DECLARE_EVENT_DATA(PlayerUseItemOnEvent);
+DECLARE_EVENT_DATA(PlayerChangeDimEvent);
+DECLARE_EVENT_DATA(PlayerJumpEvent);
+DECLARE_EVENT_DATA(EntityTransformEvent);
+DECLARE_EVENT_DATA(PlayerSneakEvent);
+DECLARE_EVENT_DATA(PlayerAttackEvent);
+DECLARE_EVENT_DATA(PlayerAttackBlockEvent);
+DECLARE_EVENT_DATA(PlayerDieEvent);
+DECLARE_EVENT_DATA(PlayerPickupItemEvent);
+DECLARE_EVENT_DATA(PlayerDropItemEvent);
+DECLARE_EVENT_DATA(PlayerEatEvent);
+DECLARE_EVENT_DATA(PlayerConsumeTotemEvent);
+DECLARE_EVENT_DATA(PlayerCmdEvent);
+DECLARE_EVENT_DATA(PlayerDestroyBlockEvent);
+DECLARE_EVENT_DATA(PlayerPlaceBlockEvent);
+DECLARE_EVENT_DATA(PlayerEffectChangedEvent);
+DECLARE_EVENT_DATA(PlayerStartDestroyBlockEvent);
+DECLARE_EVENT_DATA(PlayerOpenContainerEvent);
+DECLARE_EVENT_DATA(PlayerCloseContainerEvent);
+DECLARE_EVENT_DATA(PlayerInventoryChangeEvent);
+DECLARE_EVENT_DATA(PlayerMoveEvent);
+DECLARE_EVENT_DATA(PlayerSprintEvent);
+DECLARE_EVENT_DATA(PlayerSetArmorEvent);
+DECLARE_EVENT_DATA(PlayerUseRespawnAnchorEvent);
+DECLARE_EVENT_DATA(PlayerOpenContainerScreenEvent);
+DECLARE_EVENT_DATA(PlayerUseFrameBlockEvent);
+DECLARE_EVENT_DATA(PlayerExperienceAddEvent);
+DECLARE_EVENT_DATA(MobHurtEvent);
+DECLARE_EVENT_DATA(MobDieEvent);
+DECLARE_EVENT_DATA(EntityExplodeEvent);
+DECLARE_EVENT_DATA(ProjectileHitEntityEvent);
+DECLARE_EVENT_DATA(WitherBossDestroyEvent);
+DECLARE_EVENT_DATA(EntityRideEvent);
+DECLARE_EVENT_DATA(EntityStepOnPressurePlateEvent);
+DECLARE_EVENT_DATA(NpcCmdEvent);
+DECLARE_EVENT_DATA(ProjectileSpawnEvent);
+DECLARE_EVENT_DATA(ProjectileCreatedEvent);
+DECLARE_EVENT_DATA(ItemUseOnActorEvent);
+DECLARE_EVENT_DATA(BlockInteractedEvent);
+DECLARE_EVENT_DATA(ArmorStandChangeEvent);
+DECLARE_EVENT_DATA(BlockExplodeEvent);
+DECLARE_EVENT_DATA(ContainerChangeEvent);
+DECLARE_EVENT_DATA(PistonPushEvent);
+DECLARE_EVENT_DATA(PistonTryPushEvent);
+DECLARE_EVENT_DATA(RedStoneUpdateEvent);
+DECLARE_EVENT_DATA(BlockExplodedEvent);
+DECLARE_EVENT_DATA(LiquidSpreadEvent);
+DECLARE_EVENT_DATA(ProjectileHitBlockEvent);
+DECLARE_EVENT_DATA(HopperSearchItemEvent);
+DECLARE_EVENT_DATA(HopperPushOutEvent);
+DECLARE_EVENT_DATA(BlockChangedEvent);
+DECLARE_EVENT_DATA(FarmLandDecayEvent);
+DECLARE_EVENT_DATA(FireSpreadEvent);
+DECLARE_EVENT_DATA(CmdBlockExecuteEvent);
+DECLARE_EVENT_DATA(ConsoleCmdEvent);
+DECLARE_EVENT_DATA(PlayerScoreChangedEvent);
+DECLARE_EVENT_DATA(ConsoleOutputEvent);
+DECLARE_EVENT_DATA(PostInitEvent);
+DECLARE_EVENT_DATA(ServerStartedEvent);
+DECLARE_EVENT_DATA(ServerStoppedEvent);
+DECLARE_EVENT_DATA(RegCmdEvent);
+DECLARE_EVENT_DATA(PlayerBedEnterEvent);
+
 
 #ifdef ENABLE_SEH_PROTECTION
 #define IF_LISTENED(EVENT)    \
@@ -128,13 +294,14 @@ DeclareEventListeners(RegCmdEvent)
     {                         \
         try
 
-#define IF_LISTENED_END(EVENT)                             \
-    catch (...)                                            \
-    {                                                      \
+#define IF_LISTENED_END(EVENT)                        \
+    catch (...)                                       \
+    {                                                 \
         logger.error("Event Callback Failed!");       \
         logger.error("Uncaught Exception Detected!"); \
         logger.error("In Event: " #EVENT "");         \
-    }                                                      \
+        PrintCurrentStackTraceback();                 \
+    }                                                 \
     }
 #else
 #define IF_LISTENED(EVENT)    \
@@ -143,13 +310,8 @@ DeclareEventListeners(RegCmdEvent)
 #define IF_LISTENED_END(EVENT) }
 #endif
 
-void Event::OutputEventError(const string & errorMsg, const string & eventName, const string & pluginName)
-{
-    logger.error(errorMsg);
-    logger.error("In Event ({})", eventName);
-    if (!pluginName.empty())
-        logger.error("In Plugin <{}>", pluginName);
-}
+
+/////////////////////////////// Events /////////////////////////////// 
 
 
 /////////////////// PreJoin ///////////////////
@@ -204,19 +366,22 @@ TClasslessInstanceHook(void, "?_onPlayerLeft@ServerNetworkHandler@@AEAAXPEAVServ
 }
 
 /////////////////// PlayerRespawn ///////////////////
-TClasslessInstanceHook(void, "?handle@?$PacketHandlerDispatcherInstance@VRespawnPacket@@$0A@@@UEBAXAEBVNetworkIdentifier@@AEAVNetEventCallback@@AEAV?$shared_ptr@VPacket@@@std@@@Z",
-      NetworkIdentifier* id, ServerNetworkHandler* handler, void* pPacket)
+TClasslessInstanceHook(void, "?handle@?$PacketHandlerDispatcherInstance@VPlayerActionPacket@@$0A@@@UEBAXAEBVNetworkIdentifier@@AEAVNetEventCallback@@AEAV?$shared_ptr@VPacket@@@std@@@Z",
+                       NetworkIdentifier* id, ServerNetworkHandler* handler, void* pPacket)
 {
-    IF_LISTENED(PlayerRespawnEvent)
+    PlayerActionPacket* packet = *(PlayerActionPacket**)pPacket;
+    if (packet->actionType == PlayerActionType::Respawn)
     {
-        RespawnPacket* packet = *(RespawnPacket**)pPacket;
-        PlayerRespawnEvent ev{};
-        ev.mPlayer = packet->getPlayerFromPacket(handler, id);
-        if (!ev.mPlayer)
-            return;
-        ev.call();
+        IF_LISTENED(PlayerRespawnEvent)
+        {
+            PlayerRespawnEvent ev{};
+            ev.mPlayer = packet->getPlayerFromPacket(handler, id);
+            if (!ev.mPlayer)
+                return;
+            ev.call();
+        }
+        IF_LISTENED_END(PlayerRespawnEvent)
     }
-    IF_LISTENED_END(PlayerRespawnEvent)
     return original(this, id, handler, pPacket);
 }
 
@@ -361,28 +526,31 @@ TInstanceHook(bool, "?attack@Block@@QEBA_NPEAVPlayer@@AEBVBlockPos@@@Z",
 TInstanceHook(bool, "?take@Player@@QEAA_NAEAVActor@@HH@Z",
       Player , Actor* actor, int a2, int a3)
 {
-    IF_LISTENED(PlayerTakeItemEvent)
+    IF_LISTENED(PlayerPickupItemEvent)
     {
         ItemStack* it = nullptr;
         if (actor->isItemActor())
             it = ((ItemActor*)actor)->getItemStack();
 
-        PlayerTakeItemEvent ev{};
+        PlayerPickupItemEvent ev{};
         ev.mPlayer = this;
         ev.mItemEntity = actor;
         ev.mItemStack = it;
         if (!ev.call())
             return false;
     }
-    IF_LISTENED_END(PlayerTakeItemEvent)
+    IF_LISTENED_END(PlayerPickupItemEvent)
     return original(this, actor, a2, a3);
 }
 
-
+bool isQDrop;
+bool isDieDrop;
 /////////////////// PlayerDropItem ///////////////////
 TInstanceHook(bool, "?drop@Player@@UEAA_NAEBVItemStack@@_N@Z",
       Player, ItemStack* it, bool a3)
 {
+    if (isQDrop) return original(this, it, a3);
+    if (isDieDrop) return original(this, it, a3);
     IF_LISTENED(PlayerDropItemEvent)
     {
         PlayerDropItemEvent ev{};
@@ -394,102 +562,6 @@ TInstanceHook(bool, "?drop@Player@@UEAA_NAEBVItemStack@@_N@Z",
     IF_LISTENED_END(PlayerDropItemEvent)
     return original(this,it,a3);
 }
-
-/////////////////// PlayerEat ///////////////////
-// Food Item Component Legacy
-TClasslessInstanceHook(Item*, "?useTimeDepleted@FoodItemComponentLegacy@@UEAAPEBVItem@@AEAVItemStack@@AEAVPlayer@@AEAVLevel@@@Z",
-      ItemStack* eaten, Player* player, Level* level)
-{
-    IF_LISTENED(PlayerEatEvent)
-    {
-        if (eaten->getTypeName() != "minecraft:suspicious_stew")
-        {
-            PlayerEatEvent ev{};
-            ev.mPlayer = player;
-            ev.mFoodItem = eaten;
-            if (!ev.call())
-                return nullptr;
-        }
-    }
-    IF_LISTENED_END(PlayerEatEvent)
-    return original(this, eaten, player, level);
-}
-// Food Item Component
-TClasslessInstanceHook(Item*, "?useTimeDepleted@FoodItemComponent@@UEAAPEBVItem@@AEAVItemStack@@AEAVPlayer@@AEAVLevel@@@Z",
-      ItemStack* eaten, Player* player, Level* level)
-{
-    IF_LISTENED(PlayerEatEvent)
-    {
-        PlayerEatEvent ev{};
-        ev.mPlayer = player;
-        ev.mFoodItem = eaten;
-        if (!ev.call())
-            return nullptr;
-    }
-    IF_LISTENED_END(PlayerEatEvent)
-    return original(this, eaten, player, level);
-}
-// SuspiciousStew
-TClasslessInstanceHook(Item*, "?useTimeDepleted@SuspiciousStewItem@@UEBA?AW4ItemUseMethod@@AEAVItemStack@@PEAVLevel@@PEAVPlayer@@@Z",
-      ItemStack* eaten, Level* level, Player* player)
-{
-    IF_LISTENED(PlayerEatEvent)
-    {
-        PlayerEatEvent ev{};
-        ev.mPlayer = player;
-        ev.mFoodItem = eaten;
-        if (!ev.call())
-            return nullptr;
-    }
-    IF_LISTENED_END(PlayerEatEvent)
-    return original(this, eaten, level, player);
-}
-// Potion
-TClasslessInstanceHook(Item*, "?useTimeDepleted@PotionItem@@UEBA?AW4ItemUseMethod@@AEAVItemStack@@PEAVLevel@@PEAVPlayer@@@Z",
-      ItemStack* eaten, Level* level, Player* player)
-{
-    IF_LISTENED(PlayerEatEvent)
-    {
-        PlayerEatEvent ev{};
-        ev.mPlayer = player;
-        ev.mFoodItem = eaten;
-        if (!ev.call())
-            return nullptr;
-    }
-    IF_LISTENED_END(PlayerEatEvent)
-    return original(this, eaten, level, player);
-}
-// Medicine
-TClasslessInstanceHook(Item*, "?useTimeDepleted@MedicineItem@@UEBA?AW4ItemUseMethod@@AEAVItemStack@@PEAVLevel@@PEAVPlayer@@@Z",
-      ItemStack* eaten, Level* level, Player* player)
-{
-    IF_LISTENED(PlayerEatEvent)
-    {
-        PlayerEatEvent ev{};
-        ev.mPlayer = player;
-        ev.mFoodItem = eaten;
-        if (!ev.call())
-            return nullptr;
-    }
-    IF_LISTENED_END(PlayerEatEvent)
-    return original(this, eaten, level, player);
-}
-// milk
-TClasslessInstanceHook(Item*, "?useTimeDepleted@BucketItem@@UEBA?AW4ItemUseMethod@@AEAVItemStack@@PEAVLevel@@PEAVPlayer@@@Z",
-     ItemStack* eaten, Level* level, Player* player)
-{
-    IF_LISTENED(PlayerEatEvent)
-    {
-        PlayerEatEvent ev{};
-        ev.mPlayer = player;
-        ev.mFoodItem = eaten;
-        if (!ev.call())
-            return nullptr;
-    }
-    IF_LISTENED_END(PlayerEatEvent)
-    return original(this, eaten, level, player);
-}
-
 
 /////////////////// PlayerConsumeTotem ///////////////////
 TInstanceHook(void, "?consumeTotem@Player@@UEAA_NXZ", Player)
@@ -588,8 +660,8 @@ TInstanceHook(bool, "?mayPlace@BlockSource@@QEAA_NAEBVBlock@@AEBVBlockPos@@EPEAV
     return rtn;
 }
 
-TClasslessInstanceHook(bool, "?_useOn@BambooBlockItem@@UEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EMMM@Z",
-       ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, float a6, float a7, float a8)
+TClasslessInstanceHook(bool, "?_useOn@BambooBlockItem@@UEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EAEBVVec3@@@Z",
+       ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, Vec3* a6)
 {
     IF_LISTENED(PlayerPlaceBlockEvent)
     {
@@ -601,7 +673,7 @@ TClasslessInstanceHook(bool, "?_useOn@BambooBlockItem@@UEBA_NAEAVItemStack@@AEAV
             auto underBlock = &bs.getBlock(a4.relative(0, 1)).getDefaultState();
             if (onBlock == VanillaBlocks::mBambooBlock || onBlock == VanillaBlocks::mBambooSapling
                 || underBlock == VanillaBlocks::mBambooBlock || underBlock == VanillaBlocks::mBambooSapling)
-                return original(this, a2, a3, a4, a5, a6, a7, a8); // listen in BlockSource::mayPlace
+                return original(this, a2, a3, a4, a5, a6); // listen in BlockSource::mayPlace
             
             PlayerPlaceBlockEvent ev{};
             ev.mPlayer = (Player*)a3;
@@ -611,7 +683,7 @@ TClasslessInstanceHook(bool, "?_useOn@BambooBlockItem@@UEBA_NAEAVItemStack@@AEAV
         }
     }
     IF_LISTENED_END(PlayerPlaceBlockEvent)
-    return original(this, a2, a3, a4, a5, a6, a7, a8);
+    return original(this, a2, a3, a4, a5, a6);
 }
 
 //THook(bool, "?_useOn@BannerItem@@UEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EMMM@Z", __int64 a1, ItemStackBase* a2, Actor* a3, const struct BlockPos* a4, unsigned __int8 a5, int a6, int a7, int a8)
@@ -628,11 +700,11 @@ TClasslessInstanceHook(bool, "?_useOn@BambooBlockItem@@UEBA_NAEAVItemStack@@AEAV
 //        }
 //    }
 //    IF_LISTENED_END(PlayerPlaceBlockEvent)
-//    return original(a1, a2, a3, a4, a5, a6, a7, a8);
+//    return original(a1, a2, a3, a4, a5, a6);
 //}
 
-TClasslessInstanceHook(bool, "?_tryUseOn@BedItem@@AEBA_NAEAVItemStackBase@@AEAVActor@@VBlockPos@@EMMM@Z",
-     ItemStackBase *a2, Actor* a3, BlockPos a4, unsigned char a5, float a6, float a7, float a8)
+TClasslessInstanceHook(bool, "?_tryUseOn@BedItem@@AEBA_NAEAVItemStackBase@@AEAVActor@@VBlockPos@@EAEBVVec3@@@Z",
+     ItemStackBase *a2, Actor* a3, BlockPos a4, unsigned char a5, Vec3* a6)
 {
     IF_LISTENED(PlayerPlaceBlockEvent)
     {
@@ -646,11 +718,11 @@ TClasslessInstanceHook(bool, "?_tryUseOn@BedItem@@AEBA_NAEAVItemStackBase@@AEAVA
         }
     }
     IF_LISTENED_END(PlayerPlaceBlockEvent)
-    return original(this, a2, a3, a4, a5, a6, a7, a8);
+    return original(this, a2, a3, a4, a5, a6);
 }
 
-TClasslessInstanceHook(bool, "?_useOn@DyePowderItem@@EEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EMMM@Z",
-      ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, float a6, float a7, float a8)
+TClasslessInstanceHook(bool, "?_useOn@DyePowderItem@@EEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EAEBVVec3@@@Z",
+      ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, Vec3* a6)
 {
     IF_LISTENED(PlayerPlaceBlockEvent)
     {
@@ -665,11 +737,11 @@ TClasslessInstanceHook(bool, "?_useOn@DyePowderItem@@EEBA_NAEAVItemStack@@AEAVAc
         }
     }
     IF_LISTENED_END(PlayerPlaceBlockEvent)
-    return original(this, a2, a3, a4, a5, a6, a7, a8);
+    return original(this, a2, a3, a4, a5, a6);
 }
 
-TClasslessInstanceHook(bool, "?_useOn@DoorItem@@EEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EMMM@Z",
-      ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, float a6, float a7, float a8)
+TClasslessInstanceHook(bool, "?_useOn@DoorItem@@EEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EAEBVVec3@@@Z",
+      ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, Vec3* a6)
 {
     IF_LISTENED(PlayerPlaceBlockEvent)
     {
@@ -678,7 +750,7 @@ TClasslessInstanceHook(bool, "?_useOn@DoorItem@@EEBA_NAEAVItemStack@@AEAVActor@@
             PlayerPlaceBlockEvent ev{};
             ev.mPlayer = (Player*)a3;
             const Block* v11 = nullptr;
-            switch (*(int*)((__int64)a2 + 552))
+            switch (dAccess<int, 552>(this))
             {
                 case 0:
                     v11 = VanillaBlocks::mWoodenDoor;
@@ -714,11 +786,11 @@ TClasslessInstanceHook(bool, "?_useOn@DoorItem@@EEBA_NAEAVItemStack@@AEAVActor@@
         }
     }
     IF_LISTENED_END(PlayerPlaceBlockEvent)
-    return original(this, a2, a3, a4, a5, a6, a7, a8);
+    return original(this, a2, a3, a4, a5, a6);
 }
 
-TClasslessInstanceHook(bool, "?_useOn@RedStoneDustItem@@EEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EMMM@Z",
-      ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, float a6, float a7, float a8)
+TClasslessInstanceHook(bool, "?_useOn@RedStoneDustItem@@EEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EAEBVVec3@@@Z",
+      ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, Vec3* a6)
 {
     IF_LISTENED(PlayerPlaceBlockEvent)
     {
@@ -732,11 +804,11 @@ TClasslessInstanceHook(bool, "?_useOn@RedStoneDustItem@@EEBA_NAEAVItemStack@@AEA
         }
     }
     IF_LISTENED_END(PlayerPlaceBlockEvent)
-    return original(this, a2, a3, a4, a5, a6, a7, a8);
+    return original(this, a2, a3, a4, a5, a6);
 }
 
 //THook(bool, "?_useOn@SignItem@@UEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EMMM@Z", 
-//      class SignItem* a1, ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, float a6, float a7, float a8)
+//      class SignItem* a1, ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, Vec3* a6)
 //{
 //    IF_LISTENED(PlayerPlaceBlockEvent)
 //    {
@@ -753,7 +825,7 @@ TClasslessInstanceHook(bool, "?_useOn@RedStoneDustItem@@EEBA_NAEAVItemStack@@AEA
 //        }
 //    }
 //    IF_LISTENED_END(PlayerPlaceBlockEvent)
-//    return original(a1, a2, a3, a4, a5, a6, a7, a8);
+//    return original(a1, a2, a3, a4, a5, a6);
 //}
 
 TInstanceHook(bool, "?_calculatePlacePos@SignItem@@EEBA_NAEAVItemStackBase@@AEAVActor@@AEAEAEAVBlockPos@@@Z",
@@ -782,7 +854,7 @@ TInstanceHook(bool, "?_calculatePlacePos@SignItem@@EEBA_NAEAVItemStackBase@@AEAV
 }
 
 //THook(bool, "?_useOn@BlockPlanterItem@@MEBA_NAEAVItemStack@@AEAVActor@@VBlockPos@@EMMM@Z",
-//      class BlockPlanterItem* a1, ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, float a6, float a7, float a8)
+//      class BlockPlanterItem* a1, ItemStack* a2, Actor* a3, BlockPos a4, unsigned char a5, Vec3* a6)
 //{
 //    IF_LISTENED(PlayerPlaceBlockEvent)
 //    {
@@ -796,7 +868,7 @@ TInstanceHook(bool, "?_calculatePlacePos@SignItem@@EEBA_NAEAVItemStackBase@@AEAV
 //        }
 //    }
 //    IF_LISTENED_END(PlayerPlaceBlockEvent)
-//    return original(a1, a2, a3, a4, a5, a6, a7, a8);
+//    return original(a1, a2, a3, a4, a5, a6);
 //}
 
 #include <MC/SeedItemComponentLegacy.hpp>
@@ -824,25 +896,24 @@ TInstanceHook(bool, "?useOn@SeedItemComponentLegacy@@QEAA_NAEAVItemStack@@AEAVAc
 }
 
 
-
 /////////////////// PlayerOpenContainer ///////////////////
-TClasslessInstanceHook(__int64,
-      "?onPlayerOpenContainer@VanillaServerGameplayEventListener@@UEAA?AW4EventResult@@AEBUPlayerOpenContainerEvent@@@Z",
-       void* a2)
+TClasslessInstanceHook(__int64, "?onEvent@VanillaServerGameplayEventListener@@UEAA?AW4EventResult@@AEBUPlayerOpenContainerEvent@@@Z", void* a2)
 {
-    IF_LISTENED(PlayerOpenContainerEvent)
+    Actor* pl = SymCall("??$tryUnwrap@VActor@@$$V@WeakEntityRef@@QEBAPEAVActor@@XZ", Actor*, void*)(a2);
+    if (pl->isPlayer())
     {
-        BlockPos bp = dAccess<BlockPos>(a2, 28); // IDA VanillaServerGameplayEventListener::onPlayerOpenContainer
-        Player* pl = SymCall("??$tryUnwrap@VPlayer@@$$V@WeakEntityRef@@QEBAPEAVPlayer@@XZ", Player*, void*)(a2);
-
-        PlayerOpenContainerEvent ev{};
-        ev.mPlayer = pl;
-        ev.mBlockInstance = Level::getBlockInstance(bp, pl->getDimensionId());
-        ev.mContainer = ev.mBlockInstance.getContainer();
-        if (!ev.call())
-            return 0;
+        IF_LISTENED(PlayerOpenContainerEvent)
+        {
+            BlockPos bp = dAccess<BlockPos>(a2, 28);
+            PlayerOpenContainerEvent ev{};
+            ev.mPlayer = (Player*)pl;
+            ev.mBlockInstance = Level::getBlockInstance(bp, pl->getDimensionId());
+            ev.mContainer = ev.mBlockInstance.getContainer();
+            if (!ev.call())
+                return 0;
+        }
+        IF_LISTENED_END(PlayerOpenContainerEvent)
     }
-    IF_LISTENED_END(PlayerOpenContainerEvent)
     return original(this, a2);
 }
 
@@ -991,7 +1062,6 @@ TInstanceHook(bool, "?canOpenContainerScreen@Player@@UEAA_NXZ",Player)
     IF_LISTENED_END(PlayerOpenContainerScreenEvent)
     return original(this);
 }
-
 /////////////////// PlayerCmdEvent & ConsoleCmd ///////////////////
 TClasslessInstanceHook(MCRESULT*, "?executeCommand@MinecraftCommands@@QEBA?AUMCRESULT@@V?$shared_ptr@VCommandContext@@@std@@_N@Z",
        MCRESULT* rtn, std::shared_ptr<CommandContext> context, bool print)
@@ -1008,12 +1078,16 @@ TClasslessInstanceHook(MCRESULT*, "?executeCommand@MinecraftCommands@@QEBA?AUMCR
         {
             cmd = cmd.substr(1, cmd.size() - 1);
         }
+
+        if (!Util::isValidUTF8(cmd)) {
+            logger.error("Detected invalid utf-8 character, command will not be executed");
+            return rtn;
+        }
     }
     catch (...)
     {
         return rtn;
     }
-
     if (sp)
     {
         //PlayerCmd
@@ -1026,6 +1100,8 @@ TClasslessInstanceHook(MCRESULT*, "?executeCommand@MinecraftCommands@@QEBA?AUMCR
 
             if (!ev.call())
                 return rtn;
+
+            context->getCmd() = ev.mCommand;
         }
         IF_LISTENED_END(PlayerCmdEvent)
     }
@@ -1039,6 +1115,8 @@ TClasslessInstanceHook(MCRESULT*, "?executeCommand@MinecraftCommands@@QEBA?AUMCR
 
             if (!ev.call())
                 return rtn;
+
+            context->getCmd() = ev.mCommand;
         }
         IF_LISTENED_END(ConsoleCmdEvent)
     }
@@ -1202,9 +1280,10 @@ TInstanceHook(void, "?_onItemChanged@LevelContainerModel@@MEAAXHAEBVItemStack@@0
 
 /////////////////// ProjectileHitBlock ///////////////////
 TInstanceHook(void, "?onProjectileHit@Block@@QEBAXAEAVBlockSource@@AEBVBlockPos@@AEBVActor@@@Z",
-      Block,BlockSource* bs, BlockPos* bp, Actor* actor)
+      Block, BlockSource* bs, BlockPos* bp, Actor* actor)
 {
-    if (bp->x&bp->y&bp->z==0) //actor->getPos().distanceTo(bp->center())>5)
+    // Exclude default position BlockPos::Zero
+    if ((bp->x | bp->y | bp->z) == 0) //actor->getPos().distanceTo(bp->center())>5)
         return original(this, bs, bp, actor);
     IF_LISTENED(ProjectileHitBlockEvent)
     {
@@ -1485,14 +1564,39 @@ TInstanceHook(void*, "?die@Player@@UEAAXAEBVActorDamageSource@@@Z", ServerPlayer
         }
     }
     IF_LISTENED_END(PlayerDieEvent)
-    return original(this, src);
+    isDieDrop = true;
+    auto out = original(this, src);
+    isDieDrop = false;
+    return out;
 }
 
+bool isStartDestroy = false;
+THook(bool, "?startDestroyBlock@GameMode@@UEAA_NAEBVBlockPos@@EAEA_N@Z", Actor** ac, BlockPos* bpos, unsigned __int8 a3, bool* a4)
+{
+    IF_LISTENED(PlayerDestroyBlockEvent)
+    {
+        if (ac[1]->isPlayer())
+        {
+            PlayerDestroyBlockEvent ev{};
+            ev.mPlayer = (ServerPlayer*)ac[1];
+            ev.mBlockInstance = Level::getBlockInstance(bpos, ac[1]->getDimensionId());
+            if (!ev.call())
+                return false;
+            isStartDestroy = true;
+            auto out = original(ac, bpos, a3, a4);
+            isStartDestroy = false;
+            return out;
+        }
+    }
+    IF_LISTENED_END(PlayerDestroyBlockEvent)
+    return original(ac, bpos, a3, a4);
+}
 
 /////////////////// PlayerDestroy ///////////////////
 TInstanceHook(bool, "?checkBlockDestroyPermissions@BlockSource@@QEAA_NAEAVActor@@AEBVBlockPos@@AEBVItemStackBase@@_N@Z",
       BlockSource , Actor* ac, BlockPos* bpos, ItemStackBase* a4, bool a5)
 {
+    if (isStartDestroy) return original(this, ac, bpos, a4, a5);
     IF_LISTENED(PlayerDestroyBlockEvent)
     {
         if (ac->isPlayer())
@@ -1550,21 +1654,37 @@ TInstanceHook(bool, "?_hurt@Mob@@MEAA_NAEBVActorDamageSource@@H_N1@Z",
 }
 
 
-/////////////////// PlayerUseItem ///////////////////
+//////////////// PlayerUseItem & PlayerEat ////////////////
+#include <MC/ComponentItem.hpp>
 TInstanceHook(bool, "?baseUseItem@GameMode@@QEAA_NAEAVItemStack@@@Z", GameMode , ItemStack& it)
 {
+    auto pl = this->getPlayer();
     IF_LISTENED(PlayerUseItemEvent)
     {
         PlayerUseItemEvent ev{};
-        ev.mPlayer = this->getPlayer();
+        ev.mPlayer = pl;
         ev.mItemStack = &it;
         if (!ev.call())
             return false;
     }
     IF_LISTENED_END(PlayerUseItemEvent)
+    IF_LISTENED(PlayerEatEvent)
+    {
+        if (it.getItem()->isFood() && (pl->isHungry() || pl->forceAllowEating()))
+        {
+            PlayerEatEvent ev{};
+            ev.mPlayer = pl;
+            ev.mFoodItem = &it;
+            if (!ev.call())
+            {
+                pl->refreshAttribute(Player::HUNGER);
+                return false;
+            }
+        }
+    }
+    IF_LISTENED_END(PlayerEatEvent)
     return original(this, it);
 }
-
 
 /////////////////// MobDie ///////////////////
 TInstanceHook(bool, "?die@Mob@@UEAAXAEBVActorDamageSource@@@Z", Mob, ActorDamageSource* ads)
@@ -1589,7 +1709,8 @@ TClasslessInstanceHook(void, "?explode@Explosion@@QEAAXXZ")
 {
     try
     {
-        auto actor = (Actor*)*((QWORD*)this + 11);
+        auto acId = *(ActorUniqueID*)((QWORD*)this + 11);
+        auto actor = Global<Level>->getEntity(acId);
         auto pos = *(Vec3*)(QWORD*)this;
         auto radius = *((float*)this + 3);
         auto bs = (BlockSource*)*((QWORD*)this + 12);
@@ -1758,6 +1879,26 @@ TClasslessInstanceHook(Actor*,
     return projectile;
 }
 
+#include <MC/CrossbowItem.hpp>
+TInstanceHook(void, "?_shootFirework@CrossbowItem@@AEBAXAEBVItemInstance@@AEAVPlayer@@@Z",
+    CrossbowItem, void* a1, Player* a2)
+{
+    IF_LISTENED(ProjectileSpawnEvent)
+    {
+        auto identifier = new char[176];
+        ProjectileSpawnEvent ev{};
+        ev.mShooter = a2;
+        ev.mIdentifier = SymCall("??0ActorDefinitionIdentifier@@QEAA@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z",
+            ActorDefinitionIdentifier*, ActorDefinitionIdentifier*, string)((ActorDefinitionIdentifier*)identifier, "minecraft:fireworks_rocket");
+        ev.mType = this->getFullItemName();
+
+        if (!ev.call())
+            return;
+    }
+    IF_LISTENED_END(ProjectileSpawnEvent)
+    original(this, a1, a2);
+}
+
 TClasslessInstanceHook(void, "?releaseUsing@TridentItem@@UEBAXAEAVItemStack@@PEAVPlayer@@H@Z",
    ItemStack* a2, Player* a3, int a4)
 {
@@ -1778,8 +1919,8 @@ TClasslessInstanceHook(void, "?releaseUsing@TridentItem@@UEBAXAEAVItemStack@@PEA
 }
 
 ////////////// NpcCmd //////////////
-TInstanceHook(bool,
-      "?executeCommandAction@NpcComponent@@QEAAXAEAVActor@@AEBVPlayer@@HAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z",
+TInstanceHook(void,
+      "?executeCommandAction@NpcComponent@@QEAAXAEAVActor@@AEAVPlayer@@HAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z",
       NpcComponent, Actor* ac, Player* pl, int a4, string& a5)
 {
     IF_LISTENED(NpcCmdEvent)
@@ -1796,7 +1937,7 @@ TInstanceHook(bool,
             ev.mNpc = ac;
             ev.mCommand = actionAt->getText();
             if (!ev.call()) 
-                return false;
+                return;
         }
     }
     IF_LISTENED_END(NpcCmdEvent)
@@ -1877,9 +2018,8 @@ TClasslessInstanceHook(void, "?startServerThread@ServerInstance@@QEAAXXZ")
     original(this);
     Global<Level> = Global<Minecraft>->getLevel();
     Global<ServerLevel> = (ServerLevel*)Global<Minecraft>->getLevel();
-    Global<ServerNetworkHandler> = Global<Minecraft>->getServerNetworkHandler();
-
-    LL::globalConfig.serverStatus = LL::SeverStatus::Running;
+    //Global<ServerNetworkHandler> = Global<Minecraft>->getServerNetworkHandler();
+    LL::globalConfig.serverStatus = LL::LLServerStatus::Running;
 
     IF_LISTENED(ServerStartedEvent)
     {
@@ -1892,7 +2032,7 @@ TClasslessInstanceHook(void, "?startServerThread@ServerInstance@@QEAAXXZ")
 ////////////// ServerStopped //////////////
 TClasslessInstanceHook(void, "??1DedicatedServer@@UEAA@XZ")
 {
-    LL::globalConfig.serverStatus = LL::SeverStatus::Stopping;
+    LL::globalConfig.serverStatus = LL::LLServerStatus::Stopping;
 
     IF_LISTENED(ServerStoppedEvent)
     {
@@ -1937,37 +2077,40 @@ THook(std::ostream&,
     return original(_this, str, size);
 }
 
-//enum InventorySourceFlags
-//{
-//    DropItem = 0,
-//    PickupItem = 1,
-//    None = 2
-//};
+
 TInstanceHook(void*, "?handle@ComplexInventoryTransaction@@UEBA?AW4InventoryTransactionError@@AEAVPlayer@@_N@Z",
       ComplexInventoryTransaction, Player* a2, int a3)
 {
-    auto v7 = (InventoryTransaction*)((__int64)this + 16);
-    auto& a = dAccess<std::unordered_map<void*, void*>, 0>(v7);
-    for (auto& i : a)
-        if ((int)*((char*)&i.first + 8) == 0)//DropItem
+    if (this->type == ComplexInventoryTransaction::Type::NORMAL)
+    {
+        IF_LISTENED(PlayerDropItemEvent)
         {
-            IF_LISTENED(PlayerDropItemEvent)
+            auto& InvTran = this->data;
+            auto& action = InvTran.getActions(InventorySource(InventorySourceType::Container, ContainerID::Inventory));
+            if (action.size() == 1)
             {
                 PlayerDropItemEvent ev{};
-                ev.mItemStack = const_cast<ItemStack*>(&a2->getCarriedItem());
+                auto& item = a2->getInventory().getItem(action[0].slot);
+                ev.mItemStack = const_cast<ItemStack*>(&item);
                 ev.mPlayer = a2;
                 if (!ev.call())
                 {
                     a2->sendInventory(1);
                     return nullptr;
                 }
+                isQDrop = true;
+                auto out = original(this, a2, a3);
+                isQDrop = false;
+                return out;
             }
-            IF_LISTENED_END(PlayerDropItemEvent)
         }
+        IF_LISTENED_END(PlayerDropItemEvent)
+    }
     return original(this, a2, a3);
 }
 
-TInstanceHook(void, "?dropSlot@Inventory@@QEAAXH_N00@Z", Container, int a2, char a3, char a4, bool a5)
+TInstanceHook(void, "?dropSlot@Inventory@@QEAAXH_N00@Z",
+    Container, int a2, char a3, char a4, bool a5)
 {
     auto pl = dAccess<Player*,248>(this);
     if (pl->isPlayer())
@@ -1992,4 +2135,20 @@ TInstanceHook(void, "?dropSlot@Inventory@@QEAAXH_N00@Z", Container, int a2, char
         IF_LISTENED_END(PlayerDropItemEvent)
     }
     return original(this, a2, a3,a4,a5);
+}
+
+TInstanceHook(int, "?startSleepInBed@Player@@UEAA?AW4BedSleepingResult@@AEBVBlockPos@@@Z",
+    Player, BlockPos const& blk)
+{
+    auto bl = Level::getBlockInstance(blk, getDimensionId());
+    IF_LISTENED(PlayerBedEnterEvent)
+    {
+        PlayerBedEnterEvent ev{};
+        ev.mPlayer = this;
+        ev.mBlockInstance = &bl;
+        if (!ev.call())
+            return 0;
+    }
+    IF_LISTENED_END(PlayerBedEnterEvent)
+    return original(this, blk);
 }

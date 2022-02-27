@@ -9,11 +9,26 @@ using namespace LL;
 
 Logger crashLogger("CrashLogger");
 
+inline bool isWine()
+{
+    HMODULE ntdll = GetModuleHandle(L"ntdll.dll");
+    auto pwine_get_version = GetProcAddress(ntdll, "wine_get_version");
+    if (pwine_get_version)
+        return true;
+    else
+        return false;
+}
+
 bool LL::StartCrashLoggerProcess()
 {
     if (IsDebuggerPresent())
     {
         crashLogger.info("Existing debugger detected. Builtin CrashLogger will not work.");
+        return true;
+    }
+    if (isWine())
+    {
+        crashLogger.info("Wine Environment detected. Builtin CrashLogger will not work.");
         return true;
     }
 
@@ -44,6 +59,12 @@ bool LL::StartCrashLoggerProcess()
 
 void LL::InitCrashLogger(bool enableCrashLogger)
 {
+    // Enable PreLog Module
+    try
+    {
+        LoadLibrary(CL_PRELOG_MODULE);
+    }
+    catch (...) {}
 
     if (!enableCrashLogger)
     {

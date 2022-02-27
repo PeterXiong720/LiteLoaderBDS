@@ -20,7 +20,7 @@ using namespace LL;
 
 bool ipInformationLogged = false;
 
-// Patch for CVE-2021-45384
+//Fix bug
 TInstanceHook(void, "?handle@ServerNetworkHandler@@UEAAXAEBVNetworkIdentifier@@AEBVDisconnectPacket@@@Z",
               ServerNetworkHandler, NetworkIdentifier* ni, void* packet)
 {
@@ -32,7 +32,7 @@ TInstanceHook(void, "?handle@ServerNetworkHandler@@UEAAXAEBVNetworkIdentifier@@A
     return original(this, ni, packet);
 }
 
-// Patch for CVE-2021-45383
+//Fix bug
 TClasslessInstanceHook(bool, "?_read@ClientCacheBlobStatusPacket@@EEAA?AW4StreamReadResult@@AEAVReadOnlyBinaryStream@@@Z",
       ReadOnlyBinaryStream* a2)
 {
@@ -42,7 +42,10 @@ TClasslessInstanceHook(bool, "?_read@ClientCacheBlobStatusPacket@@EEAA?AW4Stream
     if (pkt.getUnsignedVarInt() >= 0xfff) return 0;
     return original(this, a2);
 }
-TClasslessInstanceHook(void*, "?_read@PurchaseReceiptPacket@@EEAA?AW4StreamReadResult@@AEAVReadOnlyBinaryStream@@@Z", ReadOnlyBinaryStream* a2)
+
+//Fix bug
+TClasslessInstanceHook(void*, "?_read@PurchaseReceiptPacket@@EEAA?AW4StreamReadResult@@AEAVReadOnlyBinaryStream@@@Z"
+    ,ReadOnlyBinaryStream* a2)
 {
     return (void*)1;
 }
@@ -110,16 +113,16 @@ void FixBugEvent()
 #include <MC/MovementInterpolator.hpp>
 TInstanceHook(ItemActor*, "?_drop@Actor@@IEAAPEBVItemActor@@AEBVItemStack@@_N@Z", Actor, ItemStack* a2, char a3)
 {
-    auto out = dAccess<MovementInterpolator*, 0x510>(this);
-    if (!dAccess<bool, 0x24>(out))
+    auto out = dAccess<MovementInterpolator*, 0x508>(this);
+    if (!dAccess<bool, 0x2c>(out))
     {
-        auto num = dAccess<int, 0x1c>(out);
+        auto num = dAccess<int, 0x20>(out);
         if (num > 0 && num == 1)
         {
-            auto v17 = *(Vec2*)((char*)out + 0x0c);
+            auto v17 = *(Vec2*)((char*)out + 0x14);
             this->setRot(v17);
         }
-        --dAccess<int, 0x1c>(out);
+        --dAccess<int, 0x24>(out);
     }
     return original(this, a2, a3);
 }
@@ -146,27 +149,42 @@ TInstanceHook(size_t, "??0PropertiesSettings@@QEAA@AEBV?$basic_string@DU?$char_t
 
 // Fix move view crash (ref PlayerAuthInput[MoveView])
 Player* movingViewPlayer = nullptr;
-TInstanceHook(void, "?moveView@Player@@UEAAXXZ", Player)
+TInstanceHook(void, "?moveView@Player@@UEAAXXZ",
+    Player)
 {
     movingViewPlayer = this;
     original(this);
     movingViewPlayer = nullptr;
 }
-#include<MC/ChunkViewSource.hpp>
-TClasslessInstanceHook(__int64, "?move@ChunkViewSource@@QEAAXAEBVBlockPos@@H_NV?$function@$$A6AXV?$buffer_span_mut@V?$shared_ptr@VLevelChunk@@@std@@@@V?$buffer_span@I@@@Z@std@@@Z",
-       BlockPos& a1, int a2, bool a3, std::function<void(class buffer_span_mut<class std::shared_ptr<class LevelChunk>>, class buffer_span<unsigned int>)> a4)
+#include <MC/ChunkViewSource.hpp>
+inline bool Interval(int a1)
 {
-    if (a1.x < -100000000 || a1.y > 100000000)
+    if (a1 < 0x5ffffff && a1 > -0x5ffffff) return 1;
+    return 0;
+}
+TClasslessInstanceHook(__int64, "?move@ChunkViewSource@@QEAAXAEBVBlockPos@@H_NV?$function@$$A6AXV?$buffer_span_mut@V?$shared_ptr@VLevelChunk@@@std@@@@V?$buffer_span@I@@@Z@std@@@Z",
+    BlockPos& a1, int a2, bool a3, std::function<void(class buffer_span_mut<class std::shared_ptr<class LevelChunk>>, class buffer_span<unsigned int>)> a4)
+{
+    if (Interval(a1.x) && Interval(a1.y) && Interval(a1.z))
+        return original(this, a1, a2, a3, a4);
+    Player* pl = movingViewPlayer;
+    if (pl->isPlayer())
     {
-        Player* pl = movingViewPlayer;
-        if (pl->isPlayer())
-        {
-            logger.warn << "Player(" << pl->getRealName() << ") sent invalid MoveView Packet!" << Logger::endl;
-            pl->setPos(pl->getPosOld());
-        }
-        return 0;
+        logger.warn << "Player(" << pl->getRealName() << ") sent invalid MoveView Packet!" << Logger::endl;
+        pl->setPos(pl->getPosOld());
     }
-    return original(this, a1,a2,a3,a4);
+    return 0;
 }
 
-
+//fix Wine Stop
+extern bool isWine();
+TClasslessInstanceHook(void, "?leaveGameSync@ServerInstance@@QEAAXXZ")
+{
+    original(this);
+    if (isWine())
+    {
+        std::cerr << "Quit correctly" << std::endl;
+        auto proc = GetCurrentProcess();
+        TerminateProcess(proc, 0);
+    }
+}

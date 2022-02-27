@@ -6,6 +6,7 @@
 /////////////////////// CrashLogger ///////////////////////
 // When comes with these plugins, disable builtin CrashLogger since they will cause crash
 constexpr const char* NoCrashLogger[] = {"BDSNetRunner", "AntiCheats"};
+#define CL_PRELOG_MODULE L"plugins/LiteLoader/CrashLogger.dll"
 
 
 /////////////////////// SEH Protection ///////////////////////
@@ -22,11 +23,9 @@ struct CommandLineOption
 {
     bool noColorOption = false;
 };
-enum class SeverStatus
+enum class LLServerStatus
 {
-    Starting,
-    Running,
-    Stopping
+    Starting, Running, Stopping
 };
 struct LLConfig
 {
@@ -34,6 +33,12 @@ struct LLConfig
     bool colorLog = true;
     int logLevel = 4;
     std::string language = "en";
+
+    bool enableScriptEngine = true;
+    bool alwaysLaunchScriptEngine = false;
+
+    bool enableAddonsHelper = true;
+    std::string addonsInstallPath = "plugins/AddonsHelper";
 
     bool enableAutoUpdate = true;
     bool enableCrashLogger = true;
@@ -43,10 +48,14 @@ struct LLConfig
     bool enableFixListenPort = false;
     bool enableAntiGive = true;
     bool enableUnlockCmd = true;
+    bool enableErrorStackTraceback = true;
+    bool cacheErrorStackTracebackSymbol = false;
     bool enableUnoccupyPort19132 = true;
+    bool enableCheckRunningBDS = true;
+    bool enableWelcomeText = true;
 
     // Runtime Config
-    SeverStatus serverStatus = SeverStatus::Starting;
+    LLServerStatus serverStatus = LLServerStatus::Starting;
 };
 extern LLConfig globalConfig;
 extern CommandLineOption commandLineOption;

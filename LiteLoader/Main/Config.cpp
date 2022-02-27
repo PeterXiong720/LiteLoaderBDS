@@ -9,29 +9,43 @@
 using namespace std;
 
 namespace LL {
+
     LLConfig globalConfig;
     LL::CommandLineOption commandLineOption;
 
     void inline to_json(nlohmann::json& j, const LLConfig& conf)
     {
         j = nlohmann::json{
-            {"DebugMode", conf.debugMode},
-            {"ColorLog",  conf.colorLog},
-            {"LogLevel",  conf.logLevel},
-            {"Language",  conf.language},
-            {"Modules", 
-                {
-                    {"AutoUpgrade", {{"enabled", conf.enableAutoUpdate}}},
+                {"DebugMode", conf.debugMode},
+                {"ColorLog",  conf.colorLog},
+                {"LogLevel",  conf.logLevel},
+                {"Language",  conf.language},
+                {"ScriptEngine", {
+                    {"enabled", conf.enableScriptEngine},
+                    {"alwaysLaunch", conf.alwaysLaunchScriptEngine}
+                }},
+                {"Modules", {
+                    {"AutoUpgrade", {{"enabled", conf.enableAutoUpdate}} },
                     {"CrashLogger", {
-                        {"enabled", conf.enableCrashLogger}, 
+                        {"enabled", conf.enableCrashLogger},
                         {"path", conf.crashLoggerPath}
                     }},
                     {"SimpleServerLogger", {{"enabled", conf.enableSimpleServerLogger}}},
                     {"FixDisconnectBug", {{"enabled", conf.enableFixDisconnectBug}}},
                     {"UnlockCmd", {{"enabled", conf.enableUnlockCmd}}},
+                    {"AddonsHelper", {
+                        {"enabled", conf.enableAddonsHelper},
+                        {"autoInstallPath", conf.addonsInstallPath}
+                    }},
                     {"FixListenPort", {{"enabled", conf.enableFixListenPort}}},
                     {"AntiGive", {{"enabled", conf.enableAntiGive}}},
-                    {"UnoccupyPort19132", {{"enabled", conf.enableUnoccupyPort19132}}}
+                    {"ErrorStackTraceback", {
+                        {"enabled", conf.enableErrorStackTraceback},
+                        {"cacheSymbol", conf.cacheErrorStackTracebackSymbol}
+                    }},
+                    {"UnoccupyPort19132", {{"enabled", conf.enableUnoccupyPort19132}}},
+                    {"CheckRunningBDS", {{"enabled", conf.enableCheckRunningBDS}}},
+                    {"WelcomeText", {{"enabled", conf.enableWelcomeText}}}
                 }
             }
         };
@@ -47,9 +61,16 @@ namespace LL {
         conf.logLevel = j.value("LogLevel", 4);
         conf.language = j.value("Language", "en");
 
-        if (j.count("Modules"))
-        {
-            const nlohmann::json& modules = j.at("Modules");
+        if (j.find("ScriptEngine") != j.end()) {
+            const nlohmann::json& scriptEngine = j.at("ScriptEngine");
+            conf.enableScriptEngine = scriptEngine.value("enabled", true);
+
+            if(scriptEngine.find("alwaysLaunch") != scriptEngine.end())
+                conf.alwaysLaunchScriptEngine = scriptEngine.value("alwaysLaunch", false);
+        }
+
+        if (j.find("Modules") != j.end()) {
+            const nlohmann::json &modules = j.at("Modules");
 
             if (modules.count("AutoUpgrade"))
             {
@@ -80,7 +101,13 @@ namespace LL {
             if (modules.count("UnlockCmd"))
             {
                 const nlohmann::json& setting = modules.at("UnlockCmd");
-                conf.enableUnlockCmd = setting.value("enabled", false);
+                conf.enableUnlockCmd = setting.value("enabled", true);
+            }
+            if (modules.count("AddonsHelper"))
+            {
+                const nlohmann::json& setting = modules.at("AddonsHelper");
+                conf.enableAddonsHelper = setting.value("enabled", true);
+                conf.addonsInstallPath = setting.value("autoInstallPath", "plugins/AddonsHelper");
             }
             if (modules.count("AntiGive"))
             {
@@ -90,11 +117,26 @@ namespace LL {
             if (modules.count("UnoccupyPort19132"))
             {
                 const nlohmann::json& setting = modules.at("UnoccupyPort19132");
-                conf.enableAntiGive = setting.value("enabled", true);
+                conf.enableUnoccupyPort19132 = setting.value("enabled", true);
+            }
+            if (modules.count("CheckRunningBDS"))
+            {
+                const nlohmann::json& setting = modules.at("CheckRunningBDS");
+                conf.enableCheckRunningBDS = setting.value("enabled", true);
+            }
+            if (modules.count("WelcomeText"))
+            {
+                const nlohmann::json& setting = modules.at("WelcomeText");
+                conf.enableWelcomeText = setting.value("enabled", true);
+            }
+            if (modules.find("ErrorStackTraceback") != modules.end()) {
+                const nlohmann::json& setting = modules.at("ErrorStackTraceback");
+                conf.enableErrorStackTraceback = setting.value("enabled", true);
+                conf.cacheErrorStackTracebackSymbol = setting.value("cacheSymbol", false);
             }
         }
     }
-    } // namespace LL
+} // namespace LL
 
 
 bool LL::LoadLLConfig()

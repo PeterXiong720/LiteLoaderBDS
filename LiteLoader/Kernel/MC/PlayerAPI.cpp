@@ -24,17 +24,21 @@
 
 #include <MC/Level.hpp>
 #include <MC/ItemStack.hpp>
-#include <MC/ScriptItemStack.hpp>
 #include <MC/Container.hpp>
 #include <MC/SimpleContainer.hpp>
 #include <MC/Scoreboard.hpp>
 #include <MC/PlaySoundPacket.hpp>
 #include <MC/SetDisplayObjectivePacket.hpp>
+#include <MC/Block.hpp>
 
 #include <Impl/ObjectivePacketHelper.h>
 #include <Impl/FormPacketHelper.h>
 #include <EventAPI.h>
 #include <bitset>
+#include <MC/ItemStackDescriptor.hpp>
+#include <MC/NetworkItemStackDescriptor.hpp>
+
+extern Logger logger;
 
 NetworkIdentifier* Player::getNetworkIdentifier() 
 {
@@ -147,7 +151,7 @@ string Player::getDeviceTypeName()
 bool Player::kick(const string& msg) 
 {
     NetworkIdentifier* pNetworkIdentifier = getNetworkIdentifier();
-    Global<Minecraft>->getServerNetworkHandler()->disconnectClient(*pNetworkIdentifier, msg, 0);
+    Global<ServerNetworkHandler>->disconnectClient(*pNetworkIdentifier, msg, 0);
     return true;
 }
 
@@ -228,7 +232,7 @@ bool Player::runcmd(const string& cmd)
 
 Container* Player::getEnderChestContainer() 
 {
-    return dAccess<Container*>(this, 4200);//IDA Player::Player() 782
+    return dAccess<Container*>(this, 4184);//IDA Player::Player() 782
 }
 
 bool Player::transferServer(const string& address, unsigned short port)
@@ -258,17 +262,41 @@ bool Player::setNbt(CompoundTag* nbt)
     nbt->setPlayer(this);
     return true;
 }
+#include <MC/Attribute.hpp>
+#include <MC/AttributeInstance.hpp>
+#include <MC/HashedString.hpp>
+bool Player::refreshAttribute(class Attribute const& attribute)
+{
+    return refreshAttributes({&attribute});
+}
+bool Player::refreshAttributes(std::vector<Attribute const*> const& attributes)
+{
+    BinaryStream wp;
+    wp.writeUnsignedVarInt64(getRuntimeID()); // EntityId
+    wp.writeUnsignedVarInt(attributes.size());
+    for (auto attribute : attributes)
+    {
+        auto& instance = getAttribute(*attribute);
+        wp.writeFloat(instance.getMinValue());
+        wp.writeFloat(instance.getMaxValue());
+        wp.writeFloat(instance.getCurrentValue());
+        wp.writeFloat(instance.getDefaultValue(2));
+        wp.writeString((*attribute).getName().getString());
+    }
+    wp.writeUnsignedVarInt64(0);
+    auto pkt = MinecraftPackets::createPacket(0x1D);
+    pkt->read(wp);
+    sendNetworkPacket(*pkt);
+    return true;
+}
 
 string Player::getUuid() 
 {
     auto ueic = getUserEntityIdentifierComponent();
     if (!ueic)
         return "";
-    auto uuid = (void*)((uintptr_t)ueic + 168);
-    string uuidStr;
-    SymCall("?asString@UUID@mce@@QEBA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ",
-            string*, void*, string*)(uuid, &uuidStr);
-    return uuidStr;
+    auto& uuid = dAccess<mce::UUID>(ueic, 168);
+    return uuid.asString();
 }
 
 unsigned char Player::getClientSubId()
@@ -373,6 +401,7 @@ bool Player::sendTextPacket(string text, TextType Type) const
         case TextType::RAW:
         case TextType::TIP:
         case TextType::SYSTEM:
+        case TextType::JSON_WHISPER:
         case TextType::JSON:
             wp.writeString(text);
             break;
@@ -380,9 +409,7 @@ bool Player::sendTextPacket(string text, TextType Type) const
         case TextType::POPUP:
         case TextType::JUKEBOX_POPUP:
             wp.writeString(text);
-            wp.writeVarInt(0);
-            break;
-        case TextType::JSON_WHISPER:
+            wp.writeUnsignedVarInt(0);
             break;
     }
     wp.writeString("");
@@ -458,70 +485,29 @@ bool Player::sendPlaySoundPacket(string SoundName, Vec3 Position, float Volume, 
     return true;
 }
 
-void setDataItem(BinaryStream& wp, vector<FakeDataItem> a3) 
-{
-    wp.writeUnsignedVarInt(a3.size());
-    for (auto& i : a3) {
-        wp.writeUnsignedVarInt(i.id);
-        wp.writeUnsignedVarInt((int)i.type);
-        switch ((int)i.type) {
-            case 0:
-                wp.writeUnsignedChar(i.byte);
-                break;
-            case 1:
-                wp.writeUnsignedShort(i.shorts);
-                break;
-            case 2:
-                wp.writeVarInt(i.ints);
-                break;
-            case 3:
-                wp.writeFloat(i.floats);
-                break;
-            case 4:
-                wp.writeString(i.strings);
-                break;
-            case 5:
-
-                break; //NBT
-            case 6:
-                wp.writeVarInt(i.bpos.x);
-                wp.writeVarInt(i.bpos.y);
-                wp.writeVarInt(i.bpos.z);
-                break;
-            case 7:
-                wp.writeVarInt64(i.longs);
-                break;
-            case 8:
-                wp.writeFloat(i.vec3.x);
-                wp.writeFloat(i.vec3.y);
-                wp.writeFloat(i.vec3.z);
-                break;
-            default:
-                return;
-        }
-    }
-}
-
-bool Player::sendAddItemEntityPacket(unsigned long long runtimeID, int itemID, int stackSize, short aux, Vec3 pos, vector<FakeDataItem> DataItem) const 
+// Bad?
+bool Player::sendAddItemEntityPacket(unsigned long long runtimeID, Item const& item, int stackSize, short aux, Vec3 pos, vector<std::unique_ptr<DataItem>> dataItems) const
 {
     BinaryStream wp;
     wp.writeVarInt64(runtimeID);                                   //RuntimeId
     wp.writeUnsignedVarInt64(runtimeID);                           //EntityId
-    wp.writeVarInt(itemID);                                        //ItemId
-    wp.writeUnsignedShort(static_cast<unsigned short>(stackSize)); //StackSize
-    wp.writeUnsignedVarInt(aux);                                   //Aux
-    wp.writeBool(true);
-    wp.writeUnsignedVarInt(110);
-    wp.writeVarInt(0);
-    wp.writeString("minecraft:apple");
-    wp.writeFloat(pos.x);
-    wp.writeFloat(pos.y);
-    wp.writeFloat(pos.z);
-    wp.writeFloat(pos.x);
-    wp.writeFloat(pos.y);
-    wp.writeFloat(pos.z);
-    setDataItem(wp, std::move(DataItem)); //EntityMetadata & DataItem
-    wp.writeBool(true);
+
+    // NetworkItemStackDescriptor
+    ItemStackDescriptor desc(item, aux, stackSize, nullptr);
+    NetworkItemStackDescriptor netDesc(desc);
+    wp.writeType(netDesc);
+    //wp.writeBool(true);                                            //hasNetID
+    //wp.writeVarInt(itemID);                                        //ItemId
+    //wp.writeUnsignedShort(static_cast<unsigned short>(stackSize)); //StackSize
+    //wp.writeUnsignedVarInt(aux);                                   //Aux
+    //wp.writeUnsignedVarInt(110);
+    //wp.writeVarInt(0);
+    //wp.writeString("minecraft:apple");
+
+    wp.writeType(pos);        //mPos
+    wp.writeType(Vec3::ZERO); //mVelocity
+    wp.writeType(dataItems);  //EntityMetadata & DataItem
+    wp.writeBool(false);       //isFromFishing
 
     auto pkt = MinecraftPackets::createPacket(MinecraftPacketIds::AddItemActor);
     pkt->read(wp);
@@ -529,29 +515,46 @@ bool Player::sendAddItemEntityPacket(unsigned long long runtimeID, int itemID, i
     return true;
 }
 
-bool Player::sendAddEntityPacket(unsigned long long runtimeID, string entityType, Vec3 pos, Vec3 rotation, vector<FakeDataItem> DataItem) 
+bool Player::sendAddEntityPacket(unsigned long long runtimeID, string entityType, Vec3 pos, Vec2 rotation, float headYaw, vector<std::unique_ptr<DataItem>> dataItems)
 {
     BinaryStream wp;
     wp.writeVarInt64(runtimeID);         //RuntimeId
     wp.writeUnsignedVarInt64(runtimeID); //EntityId
     wp.writeString(entityType);
-    wp.writeFloat(pos.x); //pos
-    wp.writeFloat(pos.y);
-    wp.writeFloat(pos.z);
+    wp.writeType(pos); //pos
     wp.writeFloat(0);
     wp.writeFloat(0);
     wp.writeFloat(0);
     wp.writeFloat(rotation.x); //rotation
     wp.writeFloat(rotation.y);
-    wp.writeFloat(rotation.z);
+    wp.writeFloat(headYaw);
     wp.writeUnsignedVarInt(0); //attr
-    setDataItem(wp, DataItem); //EntityMetadata & DataItem
+    wp.writeType(dataItems); //EntityMetadata & DataItem
     wp.writeUnsignedVarInt(0); //entity link
 
     auto pkt = MinecraftPackets::createPacket(MinecraftPacketIds::AddEntity);
     pkt->read(wp);
     sendNetworkPacket(*pkt);
     return true;
+}
+
+bool Player::sendUpdateBlockPacket(BlockPos const& bpos, unsigned int runtimeId, UpdateBlockFlags flag, UpdateBlockLayer layer)
+{
+    BinaryStream wp;
+    wp.writeVarInt(bpos.x);
+    wp.writeUnsignedVarInt(bpos.y);
+    wp.writeVarInt(bpos.z);
+    wp.writeUnsignedVarInt(runtimeId);
+    wp.writeUnsignedVarInt((unsigned int)flag);
+    wp.writeUnsignedVarInt((unsigned int)layer);
+    auto pkt = MinecraftPackets::createPacket(MinecraftPacketIds::UpdateBlock);
+    pkt->read(wp);
+    sendNetworkPacket(*pkt);
+    return true;
+}
+bool Player::sendUpdateBlockPacket(BlockPos const& bpos, const Block& block, UpdateBlockFlags flag, UpdateBlockLayer layer)
+{
+    return sendUpdateBlockPacket(bpos, block.getRuntimeId(), flag, layer);
 }
 
 bool Player::sendTransferPacket(const string& address, short port) const 
@@ -601,6 +604,7 @@ bool Player::sendBossEventPacket(BossEvent type, string name, float percent, Bos
             goto LABEL_3;
         case BossEvent::RegisterPlayer:
         case BossEvent::UnregisterPlayer:
+        case BossEvent::ResendRaidBossEventData:
         {
             wp.writeVarInt64(getActorUniqueId().get());
             break;
@@ -663,7 +667,7 @@ bool Player::sendRawFormPacket(unsigned formId, const string& data) const
     return true;
 }
 
-bool Player::sendSimpleFormPacket(const string& title, const string& content, const vector<string>& buttons, const std::vector<std::string>& images, std::function<void(int)> callback) const
+bool Player::sendSimpleForm(const string& title, const string& content, const vector<string>& buttons, const std::vector<std::string>& images, std::function<void(Player*, int)> callback) const
 {
     string model = u8R"({"title": "%s","content":"%s","buttons":%s,"type":"form"})";
     model = model.replace(model.find("%s"), 2, title);
@@ -692,7 +696,7 @@ bool Player::sendSimpleFormPacket(const string& title, const string& content, co
     return true;
 }
 
-bool Player::sendModalFormPacket(const string& title, const string& content, const string& button1, const string& button2, std::function<void(bool)> callback)
+bool Player::sendModalForm(const string& title, const string& content, const string& button1, const string& button2, std::function<void(Player*, bool)> callback) const
 {
     string model = R"({"title":"%s","content":"%s","button1":"%s","button2":"%s","type":"modal"})";
     model = model.replace(model.find("%s"), 2, title);
@@ -707,7 +711,7 @@ bool Player::sendModalFormPacket(const string& title, const string& content, con
     return true;
 }
 
-bool Player::sendCustomFormPacket(const std::string& data, std::function<void(string)> callback)
+bool Player::sendCustomForm(const std::string& data, std::function<void(Player*, string)> callback) const
 {
     unsigned formId = NewFormId();
     if (!sendRawFormPacket(formId, data))
@@ -723,4 +727,55 @@ bool Player::isValid(Player* player)
         if (pl == player)
             return true;
     return false;
+}
+
+// For Compatibility
+bool Player::sendSimpleFormPacket(const string& title, const string& content, const vector<string>& buttons, const std::vector<std::string>& images, std::function<void(int)> callback) const
+{
+    return sendSimpleForm(title, content, buttons, images, [callback](Player* pl, int id) {
+        if (!callback || !Player::isValid(pl))
+            return;
+        try
+        {
+            callback(id);
+        }
+        catch (...)
+        {
+            logger.error("Exception occurred in custom-form packet callback!");
+            logger.error("Player: {}", pl->getName());
+        }
+    });
+}
+bool Player::sendModalFormPacket(const string& title, const string& content, const string& button1, const string& button2, std::function<void(bool)> callback)
+{
+    return sendModalForm(title,content,button1,button2, [callback](Player* pl, bool res) {
+        if (!callback || !Player::isValid(pl))
+            return;
+        try
+        {
+            callback(res);
+        }
+        catch (...)
+        {
+            logger.error("Exception occurred in modal-form packet callback!");
+            logger.error("Player: {}", pl->getName());
+        }
+    });
+}
+
+bool Player::sendCustomFormPacket(const std::string& data, std::function<void(string)> callback)
+{
+    return sendCustomForm(data, [callback](Player* pl, string res) {
+        if (!callback || !Player::isValid(pl))
+            return;
+        try
+        {
+            callback(res);
+        }
+        catch (...)
+        {
+            logger.error("Exception occurred in custom-form packet callback!");
+            logger.error("Player: {}", pl->getName());
+        }
+    });
 }

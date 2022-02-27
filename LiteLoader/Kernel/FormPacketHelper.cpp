@@ -1,10 +1,11 @@
 #include <Global.h>
 #include <FormUI.h>
-#include <GuiAPI.h>
 #include <LLAPI.h>
+#include <I18nAPI.h>
 
 #include <Impl/FormPacketHelper.h>
 #include <third-party/Nlohmann/fifo_json.hpp>
+#include <Utils/DbgHelper.h>
 #include <Main/LiteLoader.h>
 
 #include <MC/ServerNetworkHandler.hpp>
@@ -22,9 +23,9 @@ enum class FormType {
 
 unordered_map<unsigned, FormType> formTypes;
 
-unordered_map<unsigned, std::function<void(int)>> simpleFormPacketCallbacks;
-unordered_map<unsigned, std::function<void(bool)>> modalFormPacketCallbacks;
-unordered_map<unsigned, std::function<void(string)>> customFormPacketCallbacks;
+unordered_map<unsigned, std::function<void(Player*, int)>> simpleFormPacketCallbacks;
+unordered_map<unsigned, std::function<void(Player*, bool)>> modalFormPacketCallbacks;
+unordered_map<unsigned, std::function<void(Player*, string)>> customFormPacketCallbacks;
 
 unordered_map<unsigned, std::shared_ptr<Form::SimpleForm>> simpleFormBuilders;
 unordered_map<unsigned, std::shared_ptr<Form::CustomForm>> customFormBuilders;
@@ -43,19 +44,19 @@ unsigned NewFormId()
     return formId;
 }
 
-void SetSimpleFormPacketCallback(unsigned formId, std::function<void(int)> callback)
+void SetSimpleFormPacketCallback(unsigned formId, std::function<void(Player*, int)> callback)
 {
 	formTypes[formId] = FormType::SimpleFormPacket;
 	simpleFormPacketCallbacks[formId] = callback;
 }
 
-void SetModalFormPacketCallback(unsigned formId, std::function<void(bool)> callback)
+void SetModalFormPacketCallback(unsigned formId, std::function<void(Player*, bool)> callback)
 {
 	formTypes[formId] = FormType::ModalFormPacket;
 	modalFormPacketCallbacks[formId] = callback;
 }
 
-void SetCustomFormPacketCallback(unsigned formId, std::function<void(string)> callback)
+void SetCustomFormPacketCallback(unsigned formId, std::function<void(Player*, string)> callback)
 {
 	formTypes[formId] = FormType::CustomFormPacket;
 	customFormPacketCallbacks[formId] = callback;
@@ -85,12 +86,12 @@ void HandleFormPacket(Player* player, unsigned formId, const string& data)
         //Simple Form Builder
         auto form = simpleFormBuilders[formId];
         if (form->callback)
-            form->callback(chosen);
+            form->callback(player, chosen);
         //Button Callback
         if (chosen >= 0) {
             auto button = dynamic_pointer_cast<Form::Button>(form->elements[chosen]);
             if (button->callback)
-                button->callback();
+                button->callback(player);
         }
         simpleFormBuilders.erase(formId);
     }
@@ -99,27 +100,43 @@ void HandleFormPacket(Player* player, unsigned formId, const string& data)
         //Custom Form Builder
         auto form = customFormBuilders[formId];
 
+        if (data == "null")
+        {
+            customFormBuilders.erase(formId);
+            if (form->callback)
+                form->callback(player, {});
+            return;
+        }
+
         fifo_json res = fifo_json::parse(data);
         int nowIndex = 0;
         for (fifo_json& j : res)
         {
             switch (form->getType(nowIndex))
             {
+            case Form::CustomFormElement::Type::Label:      //label's data is null
+                break;
             case Form::CustomFormElement::Type::Input:
-                form->setData<Form::Input>(nowIndex, j.get<string>());
+                form->setValue(nowIndex, j.get<string>());
                 break;
             case Form::CustomFormElement::Type::Toggle:
-                form->setData<Form::Toggle>(nowIndex, j.get<bool>());
-                break;
-            case Form::CustomFormElement::Type::Dropdown:
-                form->setData<Form::Dropdown>(nowIndex, j.get<int>());
+                form->setValue(nowIndex, j.get<bool>());
                 break;
             case Form::CustomFormElement::Type::Slider:
-                form->setData<Form::Slider>(nowIndex, j.get<int>());
+                form->setValue(nowIndex, j.get<int>());
                 break;
+            case Form::CustomFormElement::Type::Dropdown:
+            {
+                auto& options = dynamic_pointer_cast<Form::Dropdown>(form->elements[nowIndex].second)->options;
+                form->setValue(nowIndex, options[j.get<int>()]);
+                break;
+            }
             case Form::CustomFormElement::Type::StepSlider:
-                form->setData<Form::StepSlider>(nowIndex, j.get<int>());
+            {
+                auto& options = dynamic_pointer_cast<Form::StepSlider>(form->elements[nowIndex].second)->options;
+                form->setValue(nowIndex, options[j.get<int>()]);
                 break;
+            }
             default:
                 break;
             }
@@ -129,12 +146,10 @@ void HandleFormPacket(Player* player, unsigned formId, const string& data)
         if (form->callback)
         {
             std::map<string, std::shared_ptr<Form::CustomFormElement>> callbackData;
-            if (data == "null")
-                return form->callback(callbackData);
             for (auto& [k, v] : form->elements)
                 callbackData[k] = v;
 
-            form->callback(callbackData);
+            form->callback(player, callbackData);
         }
 
         customFormBuilders.erase(formId);
@@ -142,18 +157,18 @@ void HandleFormPacket(Player* player, unsigned formId, const string& data)
     else if (formTypes[formId] == FormType::SimpleFormPacket)
     {
         int chosen = data != "null" ? stoi(data) : -1;
-        simpleFormPacketCallbacks[formId](chosen);
+        simpleFormPacketCallbacks[formId](player, chosen);
         simpleFormPacketCallbacks.erase(formId);
     }
     else if (formTypes[formId] == FormType::CustomFormPacket)
     {
-        customFormPacketCallbacks[formId](data);
+        customFormPacketCallbacks[formId](player, data);
         customFormPacketCallbacks.erase(formId);
     }
     else if (formTypes[formId] == FormType::ModalFormPacket)
     {
         int chosen = data == "true" ? 1 : 0;
-        modalFormPacketCallbacks[formId](chosen);
+        modalFormPacketCallbacks[formId](player, chosen);
         modalFormPacketCallbacks.erase(formId);
     }
     formTypes.erase(formId);
@@ -187,21 +202,22 @@ TClasslessInstanceHook(void, "?handle@?$PacketHandlerDispatcherInstance@VModalFo
                 data.pop_back();
 
             HandleFormPacket(sp, formId, data);
-            GUIcallbcak(sp, formId, data);
         }
     }
     catch (const seh_exception& e)
     {
         logger.error("Event Callback Failed!");
         logger.error("SEH Uncaught Exception Detected!");
-        logger.error("{}", e.what());
+        logger.error("{}", TextEncoding::toUTF8(e.what()));
         logger.error("In Event: onFormSelected");
+        PrintCurrentStackTraceback();
     }
     catch (...)
     {
         logger.error("Event Callback Failed!");
         logger.error("Uncaught Exception Detected!");
         logger.error("In Event: onFormSelected");
+        PrintCurrentStackTraceback();
     }
 
     original(this, id, handler, pPacket);

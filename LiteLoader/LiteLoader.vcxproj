@@ -32,7 +32,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)LiteLoader;$(SolutionDir)LiteLoader\Header;$(SolutionDir)LiteLoader\Header\third-party;$(VC_IncludePath);$(WindowsSDK_IncludePath);$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir);$(SolutionDir)LiteLoader;$(SolutionDir)LiteLoader\Header;$(SolutionDir)LiteLoader\Header\third-party;$(VC_IncludePath);$(WindowsSDK_IncludePath);$(IncludePath)</IncludePath>
     <LibraryPath>$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64);$(NETFXKitsDir)Lib\um\x64</LibraryPath>
     <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
   </PropertyGroup>
@@ -55,49 +55,56 @@
       <ExceptionHandling>Async</ExceptionHandling>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
-      <Optimization>MaxSpeed</Optimization>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
       <DelayLoadDLLs>bedrock_server.dll</DelayLoadDLLs>
       <AdditionalDependencies>$(SolutionDir)LiteLoader\Lib\third-party\leveldb\leveldb.lib;$(SolutionDir)LiteLoader\Lib\third-party\openssl\libcrypto.lib;$(SolutionDir)LiteLoader\Lib\third-party\openssl\libssl.lib;$(TargetDir)Chakra.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>
-				if exist $(LocalDebuggerWorkingDirectory)\plugins\ (
-				copy /Y $(TargetPath) $(LocalDebuggerWorkingDirectory)\
-				)
-			</Command>
+      <Command>if exist "$(TargetDir)LiteLoader.lib" (
+    copy /Y "$(TargetDir)LiteLoader.lib" "$(ProjectDir)Lib\"
+)
+if exist "$(LocalDebuggerWorkingDirectory)\plugins\" (
+    copy /Y "$(TargetPath)" "$(LocalDebuggerWorkingDirectory)\"
+)</Command>
     </PostBuildEvent>
     <PreBuildEvent>
-      <Command>
-				if not exist $(ProjectDir)Lib\bedrock_server_api.lib goto process
-				if not exist $(ProjectDir)Lib\bedrock_server_var.lib goto process
-				goto end
+      <Command>if not exist "$(SolutionDir)LiteLoader\Lib\bedrock_server_api.lib" goto process
+if not exist "$(SolutionDir)LiteLoader\Lib\bedrock_server_var.lib" goto process
+goto end
 
-				:process
-				cd /d $(SolutionDir)Tools
-				LibraryBuilder.exe
+:process
+cd /d "$(SolutionDir)Tools"
+LibraryBuilder.exe
 
-				:end
-			</Command>
+:end</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Header\MC\SimulatedPlayer.cpp" />
+    <ClCompile Include="Kernel\Command\DynamicCommandAPI.cpp" />
+    <ClCompile Include="Kernel\I18nAPI_LL.cpp" />
+    <ClCompile Include="Kernel\NBT\PrettySnbtFormatAPI.cpp" />
+    <ClCompile Include="Kernel\Compatibility.cpp" />
+    <ClCompile Include="Kernel\MC\ColorFormatAPI.cpp" />
+    <ClCompile Include="Kernel\MC\I18nAPI.cpp" />
+    <ClCompile Include="Kernel\AllowListAPI.cpp" />
     <ClCompile Include="Kernel\Scoreboard\ObjectiveAPI.cpp" />
+    <ClCompile Include="Kernel\Utils\DbgHelper.cpp" />
     <ClCompile Include="Kernel\SimulatedPlayerAPI.cpp" />
+    <ClCompile Include="Kernel\Utils\STLHelper.cpp" />
+    <ClCompile Include="Main\AddonsHelper.cpp" />
     <ClCompile Include="Main\AutoUpgrade.cpp" />
     <ClCompile Include="Main\BuiltinUnlockCmd.cpp" />
     <ClCompile Include="Main\Config.cpp" />
     <ClCompile Include="Main\CrashLogger.cpp" />
     <ClCompile Include="Main\dllmain.cpp" />
     <ClCompile Include="Main\BuiltinBugFix.cpp" />
-    <ClInclude Include="Header\GuiAPI.h" />
+    <ClInclude Include="Header\AllowListAPI.h" />
     <ClInclude Include="Header\Impl\FormPacketHelper.h" />
     <ClInclude Include="Header\Impl\ObjectivePacketHelper.h" />
     <ClInclude Include="Header\LoggerAPI.h" />
@@ -108,31 +115,40 @@
     <ClInclude Include="Header\MC\BlockInstance.hpp" />
     <ClInclude Include="Header\MC\ByteArrayTag.hpp" />
     <ClInclude Include="Header\MC\ByteTag.hpp" />
+    <ClInclude Include="Header\MC\ColorFormat.hpp" />
+    <ClInclude Include="Header\MC\CommandFlag.hpp" />
     <ClInclude Include="Header\MC\CommandMessage.hpp" />
     <ClInclude Include="Header\MC\CommandPosition.hpp" />
     <ClInclude Include="Header\MC\CommandOrigin.hpp" />
     <ClInclude Include="Header\MC\CommandOutput.hpp" />
     <ClInclude Include="Header\MC\CommandParameterData.hpp" />
+    <ClInclude Include="Header\MC\CommandPositionFloat.hpp" />
     <ClInclude Include="Header\MC\CommandRegistry.hpp" />
     <ClInclude Include="Header\MC\CommandSelector.hpp" />
     <ClInclude Include="Header\MC\CommandSelectorBase.hpp" />
     <ClInclude Include="Header\MC\CompoundTag.hpp" />
     <ClInclude Include="Header\MC\CompoundTagVariant.hpp" />
+    <ClInclude Include="Header\MC\DataItem.hpp" />
+    <ClInclude Include="Header\MC\DataItem2.hpp" />
     <ClInclude Include="Header\MC\DBStorage.hpp" />
     <ClInclude Include="Header\MC\DoubleTag.hpp" />
+    <ClInclude Include="Header\DynamicCommandAPI.h" />
     <ClInclude Include="Header\MC\EndTag.hpp" />
     <ClInclude Include="Header\MC\FloatTag.hpp" />
     <ClInclude Include="Header\FormUI.h" />
     <ClInclude Include="Header\MC\GameMode.hpp" />
     <ClInclude Include="Header\MC\HashedString.hpp" />
     <ClInclude Include="Header\MC\HitResult.hpp" />
+    <ClInclude Include="Header\MC\I18n.hpp" />
     <ClInclude Include="Header\MC\Int64Tag.hpp" />
     <ClInclude Include="Header\MC\IntArrayTag.hpp" />
     <ClInclude Include="Header\MC\IntTag.hpp" />
+    <ClInclude Include="Header\MC\ItemStackBase.hpp" />
     <ClInclude Include="Header\MC\ListTag.hpp" />
     <ClInclude Include="Header\MC\MobEffectInstance.hpp" />
     <ClInclude Include="Header\MC\NbtIo.hpp" />
     <ClInclude Include="Header\MC\Packet.hpp" />
+    <ClInclude Include="Header\MC\PrettySnbtFormat.hpp" />
     <ClInclude Include="Header\MC\ReadOnlyBinaryStream.hpp" />
     <ClInclude Include="Header\MC\RelativeFloat.hpp" />
     <ClInclude Include="Header\MC\ScoreboardId.hpp" />
@@ -141,6 +157,7 @@
     <ClInclude Include="Header\MC\StringTag.hpp" />
     <ClInclude Include="Header\MC\StructureSettings.hpp" />
     <ClInclude Include="Header\MC\StructureTemplate.hpp" />
+    <ClInclude Include="Header\MC\SynchedActorData.hpp" />
     <ClInclude Include="Header\MC\Tag.hpp" />
     <ClInclude Include="Header\MC\TagMemoryChunk.hpp" />
     <ClInclude Include="Header\MC\BlockSource.hpp" />
@@ -185,9 +202,8 @@
     <ClCompile Include="Kernel\EventAPI.cpp" />
     <ClCompile Include="Kernel\NBT\FloatTagAPI.cpp" />
     <ClCompile Include="Kernel\FormPacketHelper.cpp" />
-    <ClCompile Include="Kernel\MC\FormUI.cpp" />
+    <ClCompile Include="Kernel\FormUI.cpp" />
     <ClCompile Include="Kernel\MC\GameModeAPI.cpp" />
-    <ClCompile Include="Kernel\GUI\GuiAPI.cpp" />
     <ClCompile Include="Kernel\MC\HitResultAPI.cpp" />
     <ClCompile Include="Kernel\NBT\Int64TagAPI.cpp" />
     <ClCompile Include="Kernel\NBT\IntArrayTagAPI.cpp" />
@@ -214,7 +230,6 @@
     <ClCompile Include="Kernel\MC\Types.cpp" />
     <ClCompile Include="Kernel\Utils\CryptHelper.cpp" />
     <ClCompile Include="Kernel\Utils\FileHelper.cpp" />
-    <ClCompile Include="Kernel\TranslationAPI.cpp" />
     <ClCompile Include="Kernel\Utils\GlobalService.cpp" />
     <ClCompile Include="Kernel\Utils\NetworkHelper.cpp" />
     <ClCompile Include="Kernel\Utils\PlayerMap.cpp" />
@@ -231,6 +246,7 @@
     <ClCompile Include="Main\PlayerInfoAPI.cpp" />
     <ClCompile Include="Main\PluginManager.cpp" />
     <ClCompile Include="Main\BuiltinCommands.cpp" />
+    <ClCompile Include="Main\SEHProtection.cpp" />
     <ClCompile Include="Main\SimpleServerLogger.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -241,6 +257,10 @@
     <ResourceCompile Include="Resource\LiteLoader.rc" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Header\TranslationAPI.h" />
+    <ClInclude Include="Header\Utils\DbgHelper.h" />
+    <ClInclude Include="Header\Utils\STLHelper.h" />
+    <ClInclude Include="Main\AddonsHelper.h" />
     <ClInclude Include="Main\AutoUpgrade.h" />
     <ClInclude Include="Main\Config.h" />
     <ClInclude Include="Main\CrashLogger.h" />
@@ -258,7 +278,7 @@
     <ClInclude Include="Header\Utils\FileHelper.h" />
     <ClInclude Include="Header\Utils\Hash.h" />
     <ClInclude Include="Header\HookAPI.h" />
-    <ClInclude Include="Header\TranslationAPI.h" />
+    <ClInclude Include="Header\I18nAPI.h" />
     <ClInclude Include="Header\Utils\Json.h" />
     <ClInclude Include="Header\GlobalServiceAPI.h" />
     <ClInclude Include="Header\Utils\NetworkHelper.h" />
@@ -279,10 +299,15 @@
     <ClInclude Include="Main\Version.h" />
   </ItemGroup>
   <ItemGroup>
-    <Library Include="Header\third-party\cpp-base64\lib\cpp-base64.lib" />
     <Library Include="Lib\bedrock_server_api.lib" />
     <Library Include="Lib\bedrock_server_var.lib" />
     <Library Include="Lib\SymDBHelper.lib" />
+    <Library Include="Lib\third-party\compact_enc_det\ced.lib" />
+    <Library Include="Lib\third-party\cpp-base64\cpp-base64.lib" />
+    <Library Include="Lib\third-party\dbghelp\dbghelp.lib" />
+    <Library Include="Lib\third-party\dyncall\dyncallback_s.lib" />
+    <Library Include="Lib\third-party\dyncall\dyncall_s.lib" />
+    <Library Include="Lib\third-party\dyncall\dynload_s.lib" />
     <Library Include="Lib\third-party\openssl\libcrypto.lib" />
     <Library Include="Lib\third-party\openssl\libssl.lib" />
     <Library Include="Lib\third-party\SQLiteCpp\sqlite3.lib" />

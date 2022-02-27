@@ -21,6 +21,8 @@
 #include <MC/TeleportTarget.hpp>
 #include <MC/UserEntityIdentifierComponent.hpp>
 #include <MC/OnFireSystem.hpp>
+#include <MC/TeleportRotationData.hpp>
+#include <MC/ItemStack.hpp>
 
 class UserEntityIdentifierComponent;
 
@@ -39,15 +41,19 @@ BlockSource* Actor::getBlockSource() const {
 bool Actor::isSimulatedPlayer() const {
     if (!this)
         return false;
-    auto vtbl = dlsym("??_7SimulatedPlayer@@6B@");
+    static const auto vtbl = dlsym("??_7SimulatedPlayer@@6B@");
     return *(void**)this == vtbl;
 }
 
 bool Actor::isPlayer() const {
     if (!this)
         return false;
-    auto vtbl = dlsym("??_7ServerPlayer@@6B@");
-    return *(void**)this == vtbl || isSimulatedPlayer();
+    try
+    {
+        static const auto vtbl = dlsym("??_7ServerPlayer@@6B@");
+        return *(void**)this == vtbl || isSimulatedPlayer();
+    }
+    catch (...) { return false; }
 }
 
 bool Actor::isItemActor() const {
@@ -57,15 +63,16 @@ bool Actor::isItemActor() const {
 bool Actor::isOnGround() const {
     return (dAccess<bool, 472>(this)); // IDA DirectActorProxyImpl<IMobMovementProxy>::isOnGround
 }
-
+#include <MC/ActorDefinitionIdentifier.hpp>
 std::string Actor::getTypeName() const {
     /*string res = SymCall("?EntityTypeToString@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@W4ActorType@@W4ActorTypeNamespaceRules@@@Z",
         string, int, int) (Raw_GetEntityTypeId(actor), 1);*/
     if (isPlayer())
         return "minecraft:player";
     else {
-        HashedString hash = dAccess<HashedString>(this, 880); //IDA Actor::Actor
-        return hash.getString();
+        return getActorIdentifier().getCanonicalName();
+        //HashedString hash = dAccess<HashedString>(this, 880); //IDA Actor::Actor
+        //return hash.getString();
     }
 }
 
@@ -81,15 +88,13 @@ Vec2* Actor::getDirection() const {
 }
 
 BlockPos Actor::getBlockPos() {
-    auto pos = getPos();  
-    return Vec3{pos.x, pos.y + (float)0.5, pos.z}.toBlockPos();
+    return getPos().add(0,-1.0,0).toBlockPos();
 }
 
 BlockInstance Actor::getBlockStandingOn() const
 {
     return Level::getBlockInstance(getBlockPosCurrentlyStandingOn(nullptr), getDimensionId());
 }
-
 
 ActorUniqueID Actor::getActorUniqueId() const {
     __try {
@@ -99,16 +104,25 @@ ActorUniqueID Actor::getActorUniqueId() const {
     }
 }
 
-bool Actor::teleport(Vec3 to, int dimID) {
+static_assert(sizeof(TeleportRotationData) == 32);
+bool Actor::teleport(Vec3 to, int dimID)
+{
     char mem[48];
-    auto computeTarget = (TeleportTarget * (*)(void*, class Actor&, class Vec3, class Vec3*, class AutomaticID<class Dimension, int>, class RelativeFloat, class RelativeFloat, int))(&TeleportCommand::computeTarget);
-    auto rot = getRotation();
-    auto target = computeTarget(mem, *this, to, nullptr, dimID, rot.x, rot.y, 15);
+    auto computeTarget = (TeleportTarget * (*)(void*, class Actor&, class Vec3, class Vec3*, class AutomaticID<class Dimension, int>, std::optional<TeleportRotationData> const&, int))(&TeleportCommand::computeTarget);   
+    auto target = computeTarget(mem, *this, to, nullptr, dimID, TeleportRotationData{getRotation().x, getRotation().y, {}}, 15);
     TeleportCommand::applyTarget(*this, *target);
     return true;
 }
 
-#include <MC/ItemStack.hpp>
+bool Actor::teleport(Vec3 to, int dimID,float x,float y)
+{
+    char mem[48];
+    auto computeTarget = (TeleportTarget * (*)(void*, class Actor&, class Vec3, class Vec3*, class AutomaticID<class Dimension, int>, std::optional<TeleportRotationData> const&, int))(&TeleportCommand::computeTarget);
+    auto target = computeTarget(mem, *this, to, nullptr, dimID, TeleportRotationData{x, y, {}}, 15);
+    TeleportCommand::applyTarget(*this, *target);
+    return true;
+}
+
 ItemStack* Actor::getHandSlot() {
     if (isPlayer())
         return (ItemStack*)&((Player*)this)->getSelectedItem();
@@ -148,7 +162,7 @@ bool Actor::stopFire() {
 
 
 Vec3 Actor::getCameraPos() const {
-    Vec3 pos = *(Vec3*)&getStateVectorComponent();
+    Vec3 pos = *(Vec3*)&getStateVector();
     if (isSneaking()) {
         pos.y += -0.125;
     } else {
@@ -200,7 +214,7 @@ Actor* Actor::getActorFromViewVector(float maxDistance) {
     auto& bs = getRegion();
     auto pos = getCameraPos();
     auto viewVec = getViewVector(1.0f);
-    auto aabb = *(AABB*)&_getAABBShapeComponentNonConst();
+    auto aabb = *(AABB*)&_getAABBShapeNonConst();
     auto player = isPlayer() ? (Player*)this : nullptr;
     Actor* result = nullptr;
     float distance = 0.0f;
