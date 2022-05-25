@@ -20,10 +20,11 @@ class OverworldBiomeBuilder {
 public:
     class OverworldBiomeBuilder& operator=(class OverworldBiomeBuilder const &) = delete;
     OverworldBiomeBuilder(class OverworldBiomeBuilder const &) = delete;
+    OverworldBiomeBuilder() = delete;
 #endif
 
 public:
-    MCAPI OverworldBiomeBuilder();
+    MCAPI OverworldBiomeBuilder(class BaseGameVersion const &);
     MCAPI void addBiomes(std::vector<struct BiomeNoiseTarget> &, class BiomeRegistry const &) const;
     MCAPI std::vector<struct ClimateParameters> getWorldSpawnParameters() const;
 

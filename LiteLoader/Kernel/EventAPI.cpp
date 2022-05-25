@@ -1886,11 +1886,12 @@ TClasslessInstanceHook(void, "?onHit@ProjectileComponent@@QEAAXAEAVActor@@AEBVHi
     return original(this, item, res);
 }
 
-
+#include <MC/WitherBoss.hpp>
 ////////////// WitherBossDestroy //////////////
-TInstanceHook(void, "?_destroyBlocks@WitherBoss@@AEAAXAEAVLevel@@AEBVAABB@@AEAVBlockSource@@H@Z",
-      Actor , Level* a2, AABB* aabb, BlockSource* a4, int a5)
+TInstanceHook(void, "?_destroyBlocks@WitherBoss@@AEAAXAEAVLevel@@AEBVAABB@@AEAVBlockSource@@HW4WitherAttackType@1@@Z",
+              Actor, Level* a2, AABB* aabb, BlockSource* a4, int a5 , WitherBoss::WitherAttackType a6)
 {
+
     IF_LISTENED(WitherBossDestroyEvent)
     {
         WitherBossDestroyEvent ev{};
@@ -1902,7 +1903,7 @@ TInstanceHook(void, "?_destroyBlocks@WitherBoss@@AEAAXAEAVLevel@@AEBVAABB@@AEAVB
         *aabb = ev.mDestroyRange;
     }
     IF_LISTENED_END(WitherBossDestroyEvent)
-    original(this, a2, aabb, a4, a5);
+    original(this, a2, aabb, a4, a5,a6);
 }
 
 
@@ -2013,6 +2014,7 @@ TClasslessInstanceHook(void, "?releaseUsing@TridentItem@@UEBAXAEAVItemStack@@PEA
     return original(this, a2, a3, a4);
 }
 
+#include <MC/WeakEntityRef.hpp>
 ////////////// NpcCmd //////////////
 TInstanceHook(void,
       "?executeCommandAction@NpcComponent@@QEAAXAEAVActor@@AEAVPlayer@@HAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z",
@@ -2021,7 +2023,7 @@ TInstanceHook(void,
     IF_LISTENED(NpcCmdEvent)
     {
         //IDA NpcComponent::executeCommandAction
-        NpcSceneDialogueData data(*this, *ac, a5);
+        NpcSceneDialogueData data(*(WeakEntityRef*)((char*)this + 8), a5);
         auto& container = data.getActionsContainer();
         auto actionAt = container.getActionAt(a4);
         if (actionAt && dAccess<char>(actionAt, 8) == (char)1)

@@ -722,6 +722,7 @@ private:
     MCAPI void buildFirstSet(struct CommandRegistry::ParseTable &, class CommandRegistry::Symbol, unsigned int) const;
     MCAPI void buildFollowSet(struct CommandRegistry::ParseTable &, class CommandRegistry::Symbol, unsigned int, class std::set<class CommandRegistry::Symbol, struct std::less<class CommandRegistry::Symbol>, class std::allocator<class CommandRegistry::Symbol>> &) const;
     MCAPI class CommandRegistry::Symbol buildOptionalRuleChain(struct CommandRegistry::Signature const &, std::vector<class CommandParameterData> const &, std::vector<class CommandRegistry::Symbol> const &);
+    MCAPI class CommandRegistry::Symbol buildOptionalRuleChain(struct CommandRegistry::Signature const &, std::vector<class CommandParameterData> const &, class CommandParameterData const *, unsigned __int64);
     MCAPI void buildOverload(struct CommandRegistry::Overload &);
     MCAPI void buildParseTable(unsigned int) const;
     MCAPI class CommandRegistry::Symbol buildRules(struct CommandRegistry::Signature &, std::vector<struct CommandRegistry::Overload *> const &, unsigned __int64);
@@ -742,7 +743,6 @@ private:
     MCAPI bool isValid(class CommandRegistry::Symbol) const;
     MCAPI bool originCanRun(class CommandOrigin const &, struct CommandRegistry::Overload const &) const;
     MCAPI bool originCanRun(class CommandOrigin const &, struct CommandRegistry::Signature const &) const;
-    MCAPI bool parseOperator(enum CommandOperator *, struct CommandRegistry::ParseToken const &, std::string &, std::vector<std::string> &) const;
     MCAPI bool parseSelector(struct ActorSelectorArgs &, struct CommandRegistry::ParseToken const &, class CommandOrigin const &, int, std::string &, std::vector<std::string> &) const;
     MCAPI bool parseSelector(class CommandSelectorBase *, struct CommandRegistry::ParseToken const &, class CommandOrigin const &, int, std::string &, std::vector<std::string> &, bool) const;
     MCAPI void registerOverloadInternal(struct CommandRegistry::Signature &, struct CommandRegistry::Overload &);

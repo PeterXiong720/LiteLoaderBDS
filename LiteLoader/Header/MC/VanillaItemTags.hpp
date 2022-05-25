@@ -53,6 +53,7 @@ public:
     MCAPI static char const StoneTier[];
     MCAPI static char const Sword[];
     MCAPI static char const Tool[];
+    MCAPI static char const VibrationDamper[];
     MCAPI static char const WoodenTier[];
 
 protected:

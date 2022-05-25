@@ -58,7 +58,7 @@ Certificate* Player::getCertificate()
 std::string Player::getRealName() 
 {
     if (isSimulatedPlayer())
-        return dAccess<std::string>(this, 2232);
+        return ""; // dAccess<std::string>(this, 2232);
     return ExtendedCertificate::getIdentityName(*getCertificate());
 }
 
@@ -243,7 +243,7 @@ bool Player::runcmd(const string& cmd)
 
 Container* Player::getEnderChestContainer() 
 {
-    return dAccess<Container*>(this, 4192); // IDA Player::Player() 782
+    return dAccess<Container*>(this, 4528); // IDA Player::Player() 782
 }
 
 bool Player::transferServer(const string& address, unsigned short port)

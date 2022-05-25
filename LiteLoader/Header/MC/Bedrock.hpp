@@ -77,6 +77,10 @@ class LockGuard
     MCAPI LockGuard(T);
     MCAPI ~LockGuard();
 };
+
+template <typename T>
+class UniqueLock;
+
 } // namespace Threading
 
 class ScopeExit;

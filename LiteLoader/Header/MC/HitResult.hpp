@@ -53,20 +53,22 @@ public:
     //LIAPI Vec3 getLiquidHitPos();
     LIAPI HitResultType getHitResultType();
 
+    bool isHit()
+    {
+        return (unsigned int)(*((int*)this + 6) - 2) > 1;
+    }
 #undef AFTER_EXTRA
 
 public:
-    MCAPI HitResult(class HitResult &&);
     MCAPI HitResult(class HitResult const &);
+    MCAPI HitResult(class HitResult &&);
     MCAPI HitResult(class Vec3 const &, class Vec3 const &, class Vec3 const &);
     MCAPI HitResult(class Vec3 const &, class Vec3 const &, class Actor &, class Vec3 const &);
     MCAPI HitResult(class Vec3 const &, class Vec3 const &, class Actor &);
     MCAPI HitResult(class Vec3 const &, class Vec3 const &, class BlockPos const &, unsigned char, class Vec3 const &);
     MCAPI HitResult();
-    MCAPI void __autoclassinit2(unsigned __int64);
     MCAPI float distanceTo(class Actor const &) const;
     MCAPI class Actor * getEntity() const;
-    MCAPI bool isHit() const;
     MCAPI class HitResult & operator=(class HitResult &&);
     MCAPI class HitResult & operator=(class HitResult const &);
     MCAPI ~HitResult();
