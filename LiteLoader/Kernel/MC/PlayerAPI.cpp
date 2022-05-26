@@ -50,7 +50,7 @@ Certificate* Player::getCertificate()
 {
     UserEntityIdentifierComponent* ueic = getUserEntityIdentifierComponent();
     if (ueic) {
-        return dAccess<Certificate*, 184>(ueic);
+        return dAccess<Certificate*, 216>(ueic);
     }
     return nullptr;
 }
@@ -58,7 +58,7 @@ Certificate* Player::getCertificate()
 std::string Player::getRealName() 
 {
     if (isSimulatedPlayer())
-        return ""; // dAccess<std::string>(this, 2232);
+        return dAccess<std::string>(this, 2472);
     return ExtendedCertificate::getIdentityName(*getCertificate());
 }
 
@@ -306,7 +306,7 @@ string Player::getUuid()
     auto ueic = getUserEntityIdentifierComponent();
     if (!ueic)
         return "";
-    auto& uuid = dAccess<mce::UUID>(ueic, 168);
+    auto& uuid = dAccess<mce::UUID>(ueic, 208);
     return uuid.asString();
 }
 
@@ -315,7 +315,7 @@ unsigned char Player::getClientSubId()
     auto ueic = getUserEntityIdentifierComponent();
     if (!ueic)
         return -1;
-    return dAccess<unsigned char>(ueic, 160);
+    return dAccess<unsigned char>(ueic, 200);
 }
 
 float Player::getAvgPacketLoss()
