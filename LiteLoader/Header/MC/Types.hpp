@@ -175,7 +175,7 @@ inline unsigned numChannels(ImageFormat format)
     }
 }
 
-class Image
+struct Image
 {
     inline Image(ImageFormat format, unsigned width, unsigned height, ImageUsage usage, Blob&& data)
         : format(format)
